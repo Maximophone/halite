@@ -71,7 +71,7 @@ python3 arena.py --bot "RustBot=./bots/rust/target/release/rustbot" --bot "CBot=
 ```
 
 Everything is stored in `arena/` (`games.jsonl` plus replays). Stop with Ctrl-C and restart any
-time: ratings are rebuilt from `games.jsonl`. Only the latest 1000 replays are kept (`--keep N`).
+time: ratings are rebuilt from `games.jsonl`. Only the latest 200 replays are kept (`--keep N`; a replay is about 2 MB).
 The server listens on this machine only unless you pass `--host 0.0.0.0`.
 
 ## The rules

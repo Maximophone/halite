@@ -109,6 +109,7 @@ class Arena:
                         pass  # a line cut short by a crash
         if self.games:
             self.next_id = max(g["id"] for g in self.games) + 1
+        self._prune()  # in case --keep is lower than last time
         # Replays of games cut off by the last shutdown were never recorded.
         known = {g["replay"] for g in self.games if g.get("replay")}
         for name in os.listdir(self.replay_dir):
@@ -273,7 +274,7 @@ def main():
     ap.add_argument("--bot", action="append", default=[], metavar="NAME=COMMAND",
                     help="add a bot that is not in starter-kit/python (repeatable)")
     ap.add_argument("--no-discover", action="store_true", help="only use --bot entries")
-    ap.add_argument("--keep", type=int, default=1000, help="replays kept on disk (older ones are deleted)")
+    ap.add_argument("--keep", type=int, default=200, help="replays kept on disk (older ones are deleted)")
     ap.add_argument("--data", default=os.path.join(HERE, "arena"), help="where games and replays are stored")
     ap.add_argument("--seed", type=int, help="seed for matchmaking")
     args = ap.parse_args()

@@ -33,7 +33,7 @@ Sources used for the rules:
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (strongest, see below). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (strongest, see "Apex line"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -206,6 +206,24 @@ insertion order for packs and cap control). Checked by running Rust-vs-Python an
 Python-vs-Python games on the same seed: replays identical frame for frame. If you change
 `PredatorBot.py` (since deleted; predator_bot.rs is now the only version). `tournament.py -n 20 -s 11` Rust vs
 Python was 11-9.
+
+## Apex line (Maxime: "build a bot that crushes the current ones", 2026-10-17)
+
+`apex_alpha.rs` is a frozen prototype; later versions get new names (ApexBeta, ...) so the arena
+rates each separately. Every constant reads an `APEX_*` env var (defaults in `Params::load`),
+which is how they were tuned. What mattered, measured against PredatorBot:
+- Gathering (plan, per frontier target, the turns needed to bring enough strength from up to 8
+  steps; rank by value / turns^0.25): +20% production when expanding alone. Ranking by
+  value / turns (exponent 1) was 10% worse.
+- Free sites (strength 0) must not get value prod/0: it pulled the whole interior toward
+  no-man's-land. Value is prod / max(strength, 15).
+- Pieces move only from strength 25 (`min_move`): 57% -> 70% 1v1, strength stays in big pieces.
+- Defence: pieces within 5 steps of an enemy are not used for expansion, and our sites within 2
+  of an enemy pull interior strength: 73% -> 88% 1v1.
+- No effect: fight caution (`harm`), fight pull decay, hunting weak players, most expansion
+  constants once gathering existed.
+Results (100 games, fresh seeds): 89% of 1v1s vs PredatorBot, 53% of 4-player games vs 2
+PredatorBots + ImprovedBot, 57% of 6-player games vs 2 PredatorBots, 2 ImprovedBots, RandomBot.
 
 ## Ideas not done yet (only if Maxime asks)
 

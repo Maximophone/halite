@@ -1,0 +1,17 @@
+[package]
+name = "halite-rl"
+version = "0.1.0"
+edition = "2021"
+
+# Training only. The bot that plays (starter-kit/rust/src/bin/nn_bot.rs) stays std-only and
+# reads the weights this crate exports.
+[dependencies]
+candle-core = { version = "0.11", features = ["metal"] }
+candle-nn = { version = "0.11", features = ["metal"] }
+serde_json = "1"
+# for the hand-written Metal conv (src/metal_conv.rs); same versions candle uses
+candle-metal-kernels = "0.11"
+objc2-metal = "0.3"
+
+[profile.release]
+opt-level = 3

@@ -7,3 +7,7 @@ __pycache__/
 arena/
 starter-kit/rust/target/
 engine/target/
+rl/target/
+rl/data/
+rl/runs/
+rl/checkpoints/

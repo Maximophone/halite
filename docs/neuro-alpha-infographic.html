@@ -1,0 +1,419 @@
+<title>How NeuroAlpha Sees</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Same world as the ApexBeta infographic: one dark column, Halite viewer colours
+   (yellow is us, blue the enemy). The receptive-field explorer is the bold moment. */
+:root {
+  --bg: #0f141c;
+  --panel: #161d28;
+  --line: #263041;
+  --fg: #e6e9ef;
+  --soft: #c9ced8;
+  --muted: #8a93a3;
+  --us: #f2c14e;
+  --us-soft: rgba(242, 193, 78, 0.16);
+  --them: #4ea8f2;
+  --them-soft: rgba(78, 168, 242, 0.16);
+  --neutral: #3a4354;
+  --good: #5fd38d;
+  --bad: #e8576b;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 48px 72px; display: grid; gap: 72px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2.6rem, 8vw, 5.2rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.4rem, 3.4vw, 2rem); font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.sec { display: grid; gap: 22px; }
+.lede { font-size: 1.15rem; color: var(--soft); }
+.mono { font-family: var(--mono); }
+.us { color: var(--us); }
+.them { color: var(--them); }
+
+.hero { display: grid; gap: 20px; }
+.hero h1 span { color: var(--us); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.stat { border-top: 2px solid var(--us); padding-top: 12px; display: grid; gap: 4px; align-content: start; }
+.stat b { font: 700 clamp(1.8rem, 5vw, 2.6rem)/1 var(--display); font-variant-numeric: tabular-nums; }
+.stat small { color: var(--muted); font-size: 0.85rem; }
+
+.cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.card p { font-size: 0.93rem; color: var(--soft); }
+.card svg { width: 100%; max-width: 240px; height: auto; }
+.verdict { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 12px; font-size: 0.85rem; }
+.verdict .k { font: 500 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; padding-top: 2px; }
+.verdict .k.cnn { color: var(--good); }
+.verdict .k.tf { color: var(--muted); }
+.verdict span:not(.k) { color: var(--soft); }
+
+/* network diagram */
+.netbox { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 18px; }
+.netbox svg { width: 100%; height: auto; display: block; }
+.netbox text { font-family: var(--mono); }
+.blockinfo { min-height: 3.2em; font-size: 0.93rem; color: var(--soft); }
+.blockinfo b { color: var(--us); font-weight: 500; }
+
+/* planes */
+.planes { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; }
+.plane { display: grid; grid-template-columns: 34px minmax(0, 1fr); gap: 10px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; }
+.plane .i { font: 500 0.75rem var(--mono); color: var(--muted); }
+.plane b { font-weight: 500; font-size: 0.92rem; }
+.plane small { display: block; font: 0.75rem var(--mono); color: var(--muted); }
+
+/* receptive field */
+.rf { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; grid-template-columns: minmax(0, 340px) minmax(0, 1fr); gap: 28px; align-items: center; }
+.rf svg { width: 100%; height: auto; display: block; border-radius: 6px; }
+.rfside { display: grid; gap: 16px; }
+.rfside input[type=range] { width: 100%; accent-color: var(--us); }
+.readout { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.readout div { border-top: 1px solid var(--line); padding-top: 8px; }
+.readout b { display: block; font: 700 1.5rem var(--display); font-variant-numeric: tabular-nums; }
+.readout small { color: var(--muted); font-size: 0.8rem; }
+.dils { display: flex; flex-wrap: wrap; gap: 6px; }
+.dils button { font: 500 0.8rem var(--mono); color: var(--muted); background: transparent; border: 1px solid var(--line); border-radius: 6px; padding: 4px 9px; cursor: pointer; }
+.dils button.on { color: var(--bg); background: var(--us); border-color: var(--us); }
+.dils button:focus-visible, .rfside input:focus-visible { outline: 2px solid var(--us); outline-offset: 2px; }
+
+.formula { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; overflow-x: auto; }
+.formula code { font: 0.95rem/1.9 var(--mono); white-space: pre; }
+.formula .c1 { color: var(--us); }
+.formula .c2 { color: var(--them); }
+.formula .c3 { color: var(--good); }
+
+.pipe { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+.step { padding: 18px 18px 18px 0; display: grid; gap: 10px; align-content: start; min-width: 0; }
+.step + .step { padding-left: 18px; border-left: 1px dashed var(--line); }
+.step .n { font: 700 0.8rem var(--mono); color: var(--bg); background: var(--us); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; }
+.step p { font-size: 0.92rem; color: var(--soft); }
+.step .tag { font: 0.75rem var(--mono); color: var(--muted); }
+
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 0.9rem; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font: 500 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+td { font-family: var(--mono); }
+td .mini { display: inline-block; height: 8px; border-radius: 2px; background: var(--us); vertical-align: 0; margin-right: 8px; }
+
+.speed { display: grid; gap: 10px; }
+.srow { display: grid; grid-template-columns: minmax(0, 210px) minmax(0, 1fr) 90px; gap: 14px; align-items: center; }
+.srow .k { font-size: 0.88rem; color: var(--soft); }
+.srow .track { height: 14px; background: rgba(150, 160, 180, 0.1); border-radius: 3px; position: relative; }
+.srow .fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--muted); }
+.srow.best .fill { background: var(--us); }
+.srow .v { font: 500 0.9rem var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.note { font-size: 0.88rem; color: var(--muted); }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+
+@media (max-width: 760px) {
+  .cards, .two, .stats { grid-template-columns: minmax(0, 1fr); }
+  .rf { grid-template-columns: minmax(0, 1fr); }
+  .pipe { grid-template-columns: minmax(0, 1fr); }
+  .step, .step + .step { padding: 16px 0; border-left: 0; }
+  .step + .step { border-top: 1px dashed var(--line); }
+  .srow { grid-template-columns: minmax(0, 1fr) 80px; }
+  .srow .track { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .rfwin { transition: x 0.25s ease, y 0.25s ease, width 0.25s ease, height 0.25s ease; }
+}
+</style>
+
+<div class="wrap">
+  <header class="hero">
+    <div class="eyebrow">Halite I · the neural line · October 2026</div>
+    <h1>Neuro<span>Alpha</span></h1>
+    <p class="lede">The first bot in this repo with no hand-written strategy. A convolutional network reads the whole map once per turn and gives every site we own a probability for each of its five moves. For now it learns by watching DexBot, the strongest bot here; reinforcement learning comes next.</p>
+    <div class="stats">
+      <div class="stat"><b>106k</b><small>parameters, small enough to run on a CPU inside the 1 s turn limit</small></div>
+      <div class="stat"><b>11</b><small>convolution layers, all wrapping around the map edges like the game does</small></div>
+      <div class="stat"><b>91.0%</b><small>of our sites get the same move DexBot chose (validation, step 8,000 of 20,000, still training)</small></div>
+    </div>
+  </header>
+
+  <section class="sec">
+    <div class="eyebrow">The choice</div>
+    <h2>Why a convolutional network, not a transformer</h2>
+    <p class="lede">Transformers win when there is a lot of data and little structure to exploit. Halite I is the opposite: the rules have strong structure, and a good architecture builds it in rather than learning it.</p>
+    <div class="cards">
+      <div class="card">
+        <h3>Every move is local</h3>
+        <svg viewBox="0 0 150 90" role="img" aria-label="A site and its four neighbours: the five moves">
+          <g font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle">
+            <rect x="55" y="5" width="26" height="26" rx="4" fill="rgba(150,160,180,0.08)" stroke="#263041"/>
+            <rect x="25" y="34" width="26" height="26" rx="4" fill="rgba(150,160,180,0.08)" stroke="#263041"/>
+            <rect x="55" y="34" width="26" height="26" rx="4" fill="rgba(242,193,78,0.16)" stroke="#f2c14e"/>
+            <rect x="85" y="34" width="26" height="26" rx="4" fill="rgba(150,160,180,0.08)" stroke="#263041"/>
+            <rect x="55" y="63" width="26" height="26" rx="4" fill="rgba(150,160,180,0.08)" stroke="#263041"/>
+            <text x="68" y="51" fill="#f2c14e">S</text><text x="68" y="22" fill="#8a93a3">N</text><text x="98" y="51" fill="#8a93a3">E</text>
+            <text x="68" y="80" fill="#8a93a3">S</text><text x="38" y="51" fill="#8a93a3">W</text>
+          </g>
+        </svg>
+        <p>A site chooses one of 5 moves, and merging, capture and overkill damage all happen within a step or two. A convolution is exactly "look at your neighbourhood, apply the same rule everywhere", so one small kernel serves 2,500 sites.</p>
+        <div class="verdict"><span class="k cnn">CNN</span><span>Built in: the same weights at every site.</span><span class="k tf">Transformer</span><span>Has to learn locality from data.</span></div>
+      </div>
+      <div class="card">
+        <h3>The map is a torus</h3>
+        <svg viewBox="0 0 150 90" role="img" aria-label="A site on the right edge reads its neighbour on the left edge">
+          <rect x="20" y="10" width="110" height="70" rx="6" fill="none" stroke="#263041"/>
+          <rect x="112" y="36" width="16" height="16" rx="3" fill="rgba(242,193,78,0.16)" stroke="#f2c14e"/>
+          <rect x="22" y="36" width="16" height="16" rx="3" fill="rgba(78,168,242,0.16)" stroke="#4ea8f2"/>
+          <path d="M120 36 C 120 4, 30 4, 30 36" fill="none" stroke="#f2c14e" stroke-width="1.5" stroke-dasharray="3 3"/>
+          <path d="M26 31 L30 36 L34 31" fill="none" stroke="#f2c14e" stroke-width="1.5"/>
+        </svg>
+        <p>Walk off the east edge and you arrive on the west edge. Every convolution here pads by wrapping around, so a site on the border sees exactly what it would see in the middle, with no artificial walls.</p>
+        <div class="verdict"><span class="k cnn">CNN</span><span>One line of index arithmetic.</span><span class="k tf">Transformer</span><span>Needs periodic position encodings.</span></div>
+      </div>
+      <div class="card">
+        <h3>Any map size, 20 to 50</h3>
+        <svg viewBox="0 0 150 90" role="img" aria-label="Small and large maps share the same kernel">
+          <rect x="12" y="25" width="40" height="40" rx="4" fill="none" stroke="#263041"/>
+          <rect x="66" y="8" width="74" height="74" rx="4" fill="none" stroke="#263041"/>
+          <rect x="26" y="39" width="12" height="12" rx="2" fill="rgba(242,193,78,0.3)" stroke="#f2c14e"/>
+          <rect x="97" y="39" width="12" height="12" rx="2" fill="rgba(242,193,78,0.3)" stroke="#f2c14e"/>
+        </svg>
+        <p>A fully convolutional network has no fixed input size: the same weights run on a 20x20 duel and a 50x50 six-player map. Training batches group frames of the same size.</p>
+        <div class="verdict"><span class="k cnn">CNN</span><span>Size-free by construction.</span><span class="k tf">Transformer</span><span>Also size-free, at a quadratic cost.</span></div>
+      </div>
+      <div class="card">
+        <h3>One second per turn, on a CPU</h3>
+        <svg viewBox="0 0 150 90" role="img" aria-label="Cost per layer: 23 million for the convolution against 200 million for attention">
+          <g font-family="IBM Plex Mono, monospace" font-size="10">
+            <rect x="10" y="22" width="12" height="10" rx="2" fill="#f2c14e"/><text x="28" y="31" fill="#c9ced8">conv 3x3: 23M</text>
+            <rect x="10" y="50" width="130" height="10" rx="2" fill="#8a93a3"/><text x="10" y="75" fill="#c9ced8">attention: 200M+</text>
+          </g>
+        </svg>
+        <p>On 50x50, one 32-channel 3x3 layer costs about 23 million multiply-adds. Full attention over 2,500 sites costs 6 million pairs per layer before any channels. Our whole network runs in about 110 ms per turn in plain Rust.</p>
+        <div class="verdict"><span class="k cnn">CNN</span><span>Linear in the number of sites.</span><span class="k tf">Transformer</span><span>Quadratic in the number of sites.</span></div>
+      </div>
+    </div>
+    <p class="note">What attention would add is long range: a rich region 20 sites away, or where the enemy front is. NeuroAlpha gets that more cheaply with dilated convolutions and a global summary added at every block (below).</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">The network</div>
+    <h2>One forward pass, five numbers per site</h2>
+    <div class="netbox">
+      <svg id="net" viewBox="0 0 940 300" role="img" aria-label="Input planes, a stem convolution, ten residual blocks with dilations 1 1 2 1 2 4 1 2 4 8, and a head giving five move logits per site"></svg>
+      <div class="blockinfo" id="blockinfo">Hover or tap a layer to see what it does.</div>
+    </div>
+    <div class="formula">
+      <code><span class="c1">h</span> = relu(conv3x3(<span class="c2">x</span>) + b)<span style="color:var(--muted)">                         stem: 11 planes to 32 channels</span><br>
+      <span class="c1">h</span> = relu(<span class="c1">h</span> + conv3x3<sub>d</sub>(<span class="c1">h</span>) + b + <span class="c3">mean<sub>map</sub>(h) · G</span>)<span style="color:var(--muted)">   x10 blocks, dilation d</span><br>
+      logits = <span class="c1">h</span> · W + b<span style="color:var(--muted)">                                   5 moves per site, keep our sites</span></code>
+    </div>
+    <p class="note">Each block adds its convolution to its input (a residual connection, so ten blocks train as easily as two) and adds a summary of the whole map: the mean of every channel over the map, mixed by a 32x32 matrix <span class="mono">G</span> and broadcast to every site. That is how a site on the west coast knows the game is turning against us in the east.</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">The input</div>
+    <h2>Eleven planes, seen from our seat</h2>
+    <p class="lede">The network always plays "me against everyone else": whichever seat it is in, our sites are plane 0. Enemies are pooled, so the same weights work in a duel and a six-player game.</p>
+    <div class="planes">
+      <div class="plane"><span class="i">0</span><div><b class="us">Mine</b><small>owner == me</small></div></div>
+      <div class="plane"><span class="i">1</span><div><b class="them">Enemy</b><small>owned by another player</small></div></div>
+      <div class="plane"><span class="i">2</span><div><b>Neutral</b><small>owner == 0</small></div></div>
+      <div class="plane"><span class="i">3</span><div><b>Strength</b><small>strength / 255</small></div></div>
+      <div class="plane"><span class="i">4</span><div><b>Production</b><small>production / 16</small></div></div>
+      <div class="plane"><span class="i">5</span><div><b>My strength</b><small>mine x strength</small></div></div>
+      <div class="plane"><span class="i">6</span><div><b>Enemy strength</b><small>enemy x strength</small></div></div>
+      <div class="plane"><span class="i">7</span><div><b>Neutral strength</b><small>neutral x strength</small></div></div>
+      <div class="plane"><span class="i">8</span><div><b>Free site</b><small>neutral and strength 0</small></div></div>
+      <div class="plane"><span class="i">9</span><div><b>Game clock</b><small>turn / turn limit</small></div></div>
+      <div class="plane"><span class="i">10</span><div><b>Enemies alive</b><small>count / 5</small></div></div>
+    </div>
+    <p class="note">Planes 5 to 8 are products the network could learn itself; giving them directly saves layers. The first layer of a convolutional network can only add things up, and "an enemy that is strong" is a product.</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">Receptive field</div>
+    <h2>How far can one site see?</h2>
+    <p class="lede">A 3x3 convolution sees one step in every direction. Stack the network's eleven layers plainly and a site sees 11 steps: not enough on a 50x50 map. Dilation spreads a kernel's taps <span class="mono">d</span> sites apart, so the view grows with the sum of the dilations instead.</p>
+    <div class="rf">
+      <svg id="rfmap" viewBox="0 0 250 250" role="img" aria-label="A 50 by 50 map with the area visible to the centre site highlighted"></svg>
+      <div class="rfside">
+        <label class="eyebrow" for="rfslider">Layers applied: <span id="rflabel"></span></label>
+        <input type="range" id="rfslider" min="0" max="11" value="11" step="1">
+        <div class="dils" id="dils" aria-label="Dilation of each layer"></div>
+        <div class="readout">
+          <div><b id="rfr" class="us"></b><small>steps in each direction with dilation</small></div>
+          <div><b id="rfplain"></b><small>with the same number of plain 3x3 layers</small></div>
+        </div>
+        <p class="note">After all 11 layers a site reads a 55x55 window: more than the largest map. The pattern 1, 1, 2, 1, 2, 4, 1, 2, 4, 8 repeats small dilations between large ones, so nearby detail is never skipped. The global summary covers the whole map from the first block on.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">Learning</div>
+    <h2>Phase one: imitate DexBot</h2>
+    <p class="lede">Behaviour cloning, the same idea as a 2016 network trained on replays, with a stronger teacher: DexBot, a port of Declan Groves' 7th-place bot and the strongest bot in this repo.</p>
+    <div class="pipe">
+      <div class="step"><div class="n">1</div><h3>Play</h3><p>1,300 games on the Rust engine, 2 to 6 players. Each seat is DexBot with probability 0.6, otherwise ApexGamma, HAL-lite, ApexBeta or PredatorBot.</p><span class="tag">about 5 minutes</span></div>
+      <div class="step"><div class="n">2</div><h3>Label</h3><p>Every DexBot turn becomes one example: the map from DexBot's seat, and the move it chose for each of its sites.</p><span class="tag">747,378 frames</span></div>
+      <div class="step"><div class="n">3</div><h3>Augment</h3><p>The board has 8 symmetries (4 rotations, mirrored or not). Each batch is rotated or flipped at random, with the move directions turned to match.</p><span class="tag">8x the positions</span></div>
+      <div class="step"><div class="n">4</div><h3>Weigh</h3><p>Each frame counts equally, not each site. The first version weighed sites and never learned to move its starting piece: a one-site opening was drowned by mid-game frames of 500 sites.</p><span class="tag">fixed after one bad game</span></div>
+    </div>
+    <div class="tablewrap">
+      <table id="evals">
+        <thead><tr><th>Step</th><th>Val loss</th><th>Agreement with DexBot</th><th>Of DexBot's moves, predicted exactly</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <p class="note">Agreement counts every site we own; about 82% of them stay still, so always predicting STILL scores 82%. The last column is the harder measure: of the sites DexBot actually moved, the share where the network picked the same direction. Training runs to 20,000 steps.</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">Engineering</div>
+    <h2>Trained in Rust on the GPU, played in Rust on the CPU</h2>
+    <div class="two">
+      <div class="card">
+        <h3>Training speed, steps per minute</h3>
+        <div class="speed">
+          <div class="srow"><span class="k">candle conv via shift and concatenate</span><div class="track"><div class="fill" style="width:15.7%"></div></div><span class="v">40</span></div>
+          <div class="srow"><span class="k">gather (im2col) + matmul</span><div class="track"><div class="fill" style="width:28.3%"></div></div><span class="v">72</span></div>
+          <div class="srow"><span class="k">hand-written Metal kernel</span><div class="track"><div class="fill" style="width:66.5%"></div></div><span class="v">169</span></div>
+          <div class="srow best"><span class="k">plus tiled weight gradient</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="v">254</span></div>
+        </div>
+        <p>Each step is about 65,000 sites. Candle's generic gather moved only 4 GB/s, so the wrap-around convolution got its own Metal kernels, compiled at runtime: one for the forward pass and the input gradient, one tiled reduction for the weight gradient.</p>
+      </div>
+      <div class="card">
+        <h3>One file shared by trainer and bot</h3>
+        <p>The features and the forward pass live in <span class="mono">starter-kit/rust/src/nn.rs</span>, plain std Rust. The bot uses it directly; the trainer includes the same file, so the two cannot drift apart.</p>
+        <div class="readout">
+          <div><b>1e-6</b><small>largest logit difference, GPU vs CPU</small></div>
+          <div><b>100%</b><small>same move chosen on 7,678 sites</small></div>
+          <div><b>~110 ms</b><small>per turn on 50x50, CPU under load</small></div>
+          <div><b>0</b><small>crates in the bot; weights compiled in</small></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">Next</div>
+    <h2>Phase two: beat the teacher</h2>
+    <p class="lede">A cloned network is at best as good as DexBot, and small mistakes compound because it never saw the positions its own errors create. Reinforcement learning fixes both: starting from these weights, the network plays itself and a pool of opponents, and a value head learns who is winning. Then PPO moves the policy toward moves that led to better final ranks, not toward what DexBot would have done.</p>
+  </section>
+
+  <footer>NeuroAlpha · trainer in <span class="mono">rl/</span> (candle on Metal), bot in <span class="mono">starter-kit/rust/src/bin/neuro_alpha.rs</span>. Numbers from run bc3, measured on an Apple M5.</footer>
+</div>
+
+<script>
+"use strict";
+const NS = "http://www.w3.org/2000/svg";
+const el = (p, tag, a) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); p.appendChild(e); return e; };
+const C = { us: "#f2c14e", them: "#4ea8f2", line: "#263041", muted: "#8a93a3", fg: "#e6e9ef", soft: "#c9ced8", good: "#5fd38d", panel: "#161d28" };
+const DIL = [1, 1, 2, 1, 2, 4, 1, 2, 4, 8];
+
+// --- network diagram -------------------------------------------------------
+(function () {
+  const svg = document.getElementById("net"), info = document.getElementById("blockinfo");
+  const layers = [
+    { x: 20, w: 70, label: "input", sub: "11 planes", color: C.them, text: "<b>Input:</b> the map from our seat as 11 planes of W x H values (owner, strength, production and their products, the clock, enemies alive)." },
+    { x: 120, w: 60, label: "stem", sub: "3x3, 32", color: C.us, text: "<b>Stem:</b> one wrap-around 3x3 convolution turns the 11 planes into 32 channels per site, then relu." },
+  ];
+  DIL.forEach((d, i) => layers.push({ x: 210 + i * 56, w: 44, label: "b" + (i + 1), sub: "d=" + d, d, color: C.us,
+    text: `<b>Block ${i + 1}, dilation ${d}:</b> a 3x3 convolution whose taps are ${d} site${d > 1 ? "s" : ""} apart, plus the map-wide mean of every channel mixed by G, added back to the block's input, then relu.` }));
+  layers.push({ x: 780, w: 60, label: "head", sub: "1x1, 5", color: C.good, text: "<b>Head:</b> a 1x1 layer maps the 32 channels of each site to 5 logits: STILL, NORTH, EAST, SOUTH, WEST." });
+  layers.push({ x: 862, w: 64, label: "moves", sub: "argmax", color: C.good, text: "<b>Moves:</b> each site we own plays its highest logit. Sites we do not own are ignored. No search, no rules." });
+  const base = 230;
+  // flow line
+  el(svg, "line", { x1: 20, x2: 926, y1: base - 60, y2: base - 60, stroke: C.line, "stroke-width": 2 });
+  // global context bus over the blocks
+  el(svg, "path", { d: `M210 60 H ${210 + 9 * 56 + 44}`, stroke: C.good, "stroke-width": 1.5, "stroke-dasharray": "4 4", fill: "none" });
+  const gl = el(svg, "text", { x: 210, y: 48, fill: C.good, "font-size": 12 }); gl.textContent = "global summary: mean of the map, added at every block";
+  layers.forEach((L, i) => {
+    const h = L.d ? 40 + L.d * 11 : 80;
+    const g = el(svg, "g", { tabindex: 0, role: "button", "aria-label": L.label, style: "cursor:pointer;outline:none" });
+    const r = el(g, "rect", { x: L.x, y: base - 60 - h / 2, width: L.w, height: h, rx: 6, fill: C.panel, stroke: L.color, "stroke-width": 1.5 });
+    if (L.d) {
+      for (let t = 0; t < 3; t++) for (let u = 0; u < 3; u++) {
+        const sp = Math.min(L.d, 8) * 1.6 + 3;
+        el(g, "circle", { cx: L.x + L.w / 2 + (u - 1) * sp, cy: base - 60 + (t - 1) * sp, r: 2.2, fill: C.us, opacity: 0.85 });
+      }
+    }
+    if (L.d) el(g, "line", { x1: L.x + L.w / 2, x2: L.x + L.w / 2, y1: 60, y2: base - 60 - h / 2, stroke: C.good, "stroke-width": 1, opacity: 0.4 });
+    const t1 = el(g, "text", { x: L.x + L.w / 2, y: base + 18, "text-anchor": "middle", fill: C.fg, "font-size": 12 }); t1.textContent = L.label;
+    const t2 = el(g, "text", { x: L.x + L.w / 2, y: base + 34, "text-anchor": "middle", fill: C.muted, "font-size": 11 }); t2.textContent = L.sub;
+    const show = () => { info.innerHTML = L.text; svg.querySelectorAll("g[role=button] rect").forEach(x => x.setAttribute("stroke-width", 1.5)); r.setAttribute("stroke-width", 3); };
+    g.addEventListener("pointerenter", show); g.addEventListener("focus", show); g.addEventListener("click", show);
+  });
+  const t = el(svg, "text", { x: 470, y: 290, "text-anchor": "middle", fill: C.muted, "font-size": 11 });
+  t.textContent = "block height and dot spacing grow with the dilation · every block also adds its own input back (residual)";
+})();
+
+// --- receptive field explorer ------------------------------------------------
+(function () {
+  const svg = document.getElementById("rfmap"), N = 50, S = 5;
+  el(svg, "rect", { x: 0, y: 0, width: 250, height: 250, fill: "#121821" });
+  for (let i = 0; i <= N; i += 5) {
+    el(svg, "line", { x1: i * S, x2: i * S, y1: 0, y2: 250, stroke: C.line, "stroke-width": i % 25 ? 0.5 : 1 });
+    el(svg, "line", { y1: i * S, y2: i * S, x1: 0, x2: 250, stroke: C.line, "stroke-width": i % 25 ? 0.5 : 1 });
+  }
+  const plain = el(svg, "rect", { class: "rfwin", fill: "none", stroke: C.muted, "stroke-width": 1, "stroke-dasharray": "3 3" });
+  const win = el(svg, "rect", { class: "rfwin", fill: "rgba(242,193,78,0.22)", stroke: C.us, "stroke-width": 1.5 });
+  el(svg, "rect", { x: 25 * S, y: 25 * S, width: S, height: S, fill: C.us });
+  const slider = document.getElementById("rfslider"), dils = document.getElementById("dils");
+  const kernels = [1].concat(DIL); // stem then the blocks
+  kernels.forEach((d, i) => {
+    const b = document.createElement("button");
+    b.textContent = i === 0 ? "stem" : "d" + d;
+    b.addEventListener("click", () => { slider.value = i + 1; update(); });
+    dils.appendChild(b);
+  });
+  const place = (rect, r) => {
+    const side = Math.min(N, 2 * r + 1), o = 25 - Math.min(r, 25);
+    rect.setAttribute("x", (side >= N ? 0 : o) * S); rect.setAttribute("y", (side >= N ? 0 : o) * S);
+    rect.setAttribute("width", side * S); rect.setAttribute("height", side * S);
+  };
+  function update() {
+    const n = +slider.value;
+    const r = kernels.slice(0, n).reduce((a, d) => a + d, 0);
+    place(win, r); place(plain, n);
+    document.getElementById("rflabel").textContent = n === 0 ? "none" : n === 1 ? "stem" : "stem + " + (n - 1) + " block" + (n > 2 ? "s" : "");
+    document.getElementById("rfr").textContent = r + (2 * r + 1 >= N ? " (whole map)" : "");
+    document.getElementById("rfplain").textContent = n;
+    [...dils.children].forEach((b, i) => b.classList.toggle("on", i < n));
+  }
+  slider.addEventListener("input", update);
+  update();
+})();
+
+// --- evaluation table --------------------------------------------------------
+(function () {
+  const evals = [
+    [1000, 0.3503, 0.8876, 0.4940], [2000, 0.3162, 0.8939, 0.5479], [3000, 0.2908, 0.9005, 0.5717], [4000, 0.2816, 0.9023, 0.5761], [5000, 0.2777, 0.9032, 0.5717], [6000, 0.2666, 0.9056, 0.6103], [7000, 0.2615, 0.9076, 0.6054], [8000, 0.2606, 0.9103, 0.6116],
+  ].filter(e => e[1] != null);
+  const tb = document.querySelector("#evals tbody");
+  for (const [s, l, a, r] of evals) {
+    const tr = tb.insertRow();
+    tr.insertCell().textContent = s.toLocaleString("en");
+    tr.insertCell().textContent = l.toFixed(4);
+    tr.insertCell().textContent = (100 * a).toFixed(1) + "%";
+    const c = tr.insertCell();
+    const bar = document.createElement("span"); bar.className = "mini"; bar.style.width = (r * 120).toFixed(0) + "px";
+    c.append(bar, document.createTextNode((100 * r).toFixed(1) + "%"));
+  }
+})();
+</script>

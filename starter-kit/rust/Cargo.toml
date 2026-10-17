@@ -1,0 +1,14 @@
+[package]
+name = "halite-bots"
+version = "0.1.0"
+edition = "2021"
+
+# No external crates: the hlt module only uses the standard library.
+[dependencies]
+
+[lib]
+name = "hlt"
+path = "src/hlt.rs"
+
+[profile.release]
+opt-level = 3

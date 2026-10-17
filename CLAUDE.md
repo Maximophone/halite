@@ -36,8 +36,9 @@ Sources used for the rules:
 | `starter-kit/python/RandomBot.py` | Original sample bot |
 | `starter-kit/python/ImprovedBot.py` | Heuristic sparring bot; beats RandomBot every time |
 | `starter-kit/python/PredatorBot.py` | Strongest bot so far (see below) |
+| `starter-kit/rust/` | Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`), `src/bin/my_bot.rs` random template, `src/bin/predator_bot.rs` exact port of PredatorBot (name `RustPredatorBot`) |
 
-Generated, git-ignored: `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
+Generated, git-ignored: `starter-kit/rust/target/` (cargo build output), `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
 `examples/` (a sample game; regenerate with the command in README).
 
 Constraints: **Python 3 standard library only** (tested on 3.10 on the Mac and 3.13 in the
@@ -141,9 +142,23 @@ A faster engine alone saves at most ~30%; parallel games (arena) scale with core
 games/min on the 10-core Mac with 5 workers). Bots in compiled languages are the bigger lever;
 they plug in through `--bot NAME=COMMAND`.
 
+Rust PredatorBot (measured 2026-10-17, machine under load from another arena): 50x50, 4 players,
+seeds 1-3 (326, 296, 419 turns): all-Rust 1.88 / 1.67 / 1.79 s, all-Python 4.25 / 3.34 / 4.34 s,
+so about 2.2x faster per game. The games are identical (same turns, same death turns) because
+the port makes the same moves, which makes this a clean comparison. With Rust bots, waiting on
+bots is only ~0.3 s of a game; engine `step` plus serializing and parsing is the rest, so the
+engine is now the bottleneck and the next lever if games must go faster.
+
+Rust port fidelity: it reproduces Python's tie-breaking (heap ordered like the tuple
+`(-value, site, dir, fight)`, `max()` over `(value, dir, site)` tuples, stable sorts, dict
+insertion order for packs and cap control). Checked by running Rust-vs-Python and
+Python-vs-Python games on the same seed: replays identical frame for frame. If you change
+`PredatorBot.py`, port the change and redo that check. `tournament.py -n 20 -s 11` Rust vs
+Python: 11-9.
+
 ## Ideas not done yet (only if Maxime asks)
 
-- Starter kits for other languages (the protocol is plain text, so easy to add).
+- Starter kits for more languages (Python and Rust exist; the protocol is plain text).
 - A stronger reference bot (border-routing of interior strength, overkill tactics,
   non-aggression pact from the late 2016 meta: let others attack first).
 - TrueSkill ratings (the arena uses multiplayer Elo).

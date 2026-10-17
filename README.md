@@ -36,6 +36,7 @@ To generate a sample game to look at: `python3 halite.py -d "40 40" -s 2016 -o e
 | `arena.py`, `arena.html` | Endless tournament server with a leaderboard and a browsable list of every game |
 | `test_rules.py` | Checks for the combat, movement and production rules |
 | `starter-kit/python/` | `hlt.py` and `networking.py` (original API), `MyBot.py`, `RandomBot.py`, `ImprovedBot.py`, `PredatorBot.py` |
+| `starter-kit/rust/` | Rust starter kit (no external crates): `hlt` module, `my_bot` (random template), `predator_bot` (port of PredatorBot) |
 
 ## Options
 
@@ -67,7 +68,7 @@ Games mix 2, 3, 4 and 6 players on random maps.
 Bots in other languages: anything that speaks the protocol works.
 
 ```bash
-python3 arena.py --bot "RustBot=./bots/rust/target/release/rustbot" --bot "CBot=./bots/c/cbot"
+python3 arena.py --bot "RustPredator=./starter-kit/rust/target/release/predator_bot" --bot "CBot=./bots/c/cbot"
 ```
 
 Everything is stored in `arena/` (`games.jsonl` plus replays). Stop with Ctrl-C and restart any
@@ -146,6 +147,55 @@ waits until it has 5x its production in strength, and sends interior pieces to t
 Classic next steps from the original competition: route interior strength toward the
 weakest point of the border, avoid merging past 255, and use overkill when fighting
 (move into the empty gap between you and an enemy so your piece hits all their pieces at once).
+
+## Writing a bot in Rust
+
+`starter-kit/rust/` is a cargo project with no external crates. Install Rust with
+[rustup](https://rustup.rs) (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then:
+
+```bash
+cd starter-kit/rust
+cargo build --release
+cd ../..
+python3 halite.py "./starter-kit/rust/target/release/my_bot" "python3 starter-kit/python/ImprovedBot.py"
+```
+
+Edit `src/bin/my_bot.rs` (it starts as a random bot). To add another bot, drop a file in
+`src/bin/`: `src/bin/foo.rs` builds to `target/release/foo`. The `hlt` module mirrors the
+Python API in Rust style:
+
+```rust
+use hlt::*;
+
+fn main() {
+    let (my_id, _map, mut conn) = get_init();
+    send_init("MyRustBot");
+    loop {
+        let map = conn.get_frame();
+        let mut moves = Vec::new();
+        for y in 0..map.height {
+            for x in 0..map.width {
+                let loc = Location { x, y };
+                let site = map.get_site(loc, STILL); // .owner .strength .production
+                if site.owner == my_id {
+                    moves.push(Move { loc, direction: STILL });
+                }
+            }
+        }
+        conn.send_frame(&moves);
+    }
+}
+```
+
+Helpers on `GameMap`: `get_site(loc, dir)`, `get_location(loc, dir)`, `get_distance(a, b)`,
+`get_angle(a, b)`, `in_bounds(loc)`; `map.contents[y][x]` is the raw grid. Never print to
+stdout (it is the game channel); use `eprintln!`, which goes to `logs/bot-N.log`. The bot exits
+cleanly when the environment closes stdin.
+
+`predator_bot` is a move-for-move port of `PredatorBot.py`: on the same map both versions
+produce identical replays. It reports its name as `RustPredatorBot`. A 50x50 4-player game takes
+about 1.8 s with four Rust PredatorBots against about 4 s with four Python ones (same game, same
+moves); with Rust bots most of the remaining time is the Python engine.
 
 ## How close is it to the original?
 

@@ -3,8 +3,9 @@
 Halite arena: an endless tournament with a web front end.
 
 Plays games forever between every bot it knows, several games in parallel,
-keeps Elo-style ratings, and serves a leaderboard plus a browsable list of
-every game at http://localhost:8000 (each game opens in the replay viewer).
+keeps skill ratings (a mean and an uncertainty per bot), and serves a
+leaderboard plus a browsable list of every game at http://localhost:8000
+(each game opens in the replay viewer).
 
 Bots: every Rust bot in starter-kit/rust/src/bin/ that has been built
 (cargo build --release) is picked up automatically, including bots built while
@@ -16,7 +17,7 @@ Usage:
     python3 arena.py --workers 8 --port 8000 --bot "CBot=./bots/c/cbot"
 
 Data lives in arena/: games.jsonl (the latest --history games), state.json
-(ratings and totals for everything older) and replays/. Ratings are rebuilt
+(skills and totals for everything older) and replays/. Skills are rebuilt
 from both on start, so stopping and restarting loses nothing.
 """
 
@@ -25,6 +26,7 @@ import concurrent.futures as cf
 import glob
 import http.server
 import json
+import math
 import os
 import random
 import shlex
@@ -56,8 +58,19 @@ def rust_bots():
             unbuilt.append(stem)
     return built, unbuilt
 
-START_RATING = 1500.0
-K_FACTOR = 32.0
+# Skill ratings: Weng-Lin Bayesian approximation with the Plackett-Luce model
+# (Weng and Lin, JMLR 2011; what the openskill package implements), a
+# patent-free cousin of TrueSkill that rates whole finishing orders. Each bot
+# has a mean MU and an uncertainty SIGMA; the leaderboard ranks by
+# MU - 3 * SIGMA, which a bot only climbs once it has played enough games.
+MU = 25.0
+SIGMA = MU / 3            # prior uncertainty of a new bot
+BETA = MU / 6             # performance noise within one game
+# Uncertainty added before each game, so ratings keep moving. The usual
+# MU / 300 kept sigma near 1.7 here and the curves jittered by about 1.3;
+# with MU / 3000 sigma settles near 0.7 and the jitter halves.
+TAU = MU / 3000
+KAPPA = 1e-4              # floor on the variance shrink factor
 ANALYTICS_TTL = 5.0       # seconds the chart data is reused while games finish
 COMPACT_SLACK = 1000      # games past --history before games.jsonl is rewritten
 # Player counts and how often each is picked.
@@ -98,8 +111,43 @@ def play(spec):
 # Arena state
 # ---------------------------------------------------------------------------
 
-def apply_game(game, ratings, stats):
-    """Update per-bot totals and ratings with one finished game."""
+def conservative(skill):
+    mu, sigma = skill
+    return mu - 3 * sigma
+
+
+def rate(skills, ranks):
+    """
+    One Plackett-Luce update. `skills` are (mu, sigma) per seat, `ranks` the
+    finishing places (1 = first, equal places are ties). Returns the new
+    (mu, sigma) per seat.
+    """
+    n = len(skills)
+    var = [sigma * sigma + TAU * TAU for _, sigma in skills]
+    c = math.sqrt(sum(v + BETA * BETA for v in var))
+    strength = [math.exp(mu / c) for mu, _ in skills]
+    # For each seat q: the total strength of everyone placed at or below q,
+    # and how many share q's place.
+    below = [sum(strength[s] for s in range(n) if ranks[s] >= ranks[q]) for q in range(n)]
+    tied = [sum(1 for s in range(n) if ranks[s] == ranks[q]) for q in range(n)]
+    out = []
+    for i, (mu, _) in enumerate(skills):
+        omega = delta = 0.0
+        for q in range(n):
+            if ranks[q] > ranks[i]:
+                continue
+            p = strength[i] / below[q]
+            omega += ((i == q) - p) / tied[q]
+            delta += p * (1 - p) / tied[q]
+        sd = math.sqrt(var[i])
+        mu += var[i] / c * omega
+        shrink = max(1 - sd / c * var[i] / (c * c) * delta, KAPPA)
+        out.append((mu, sd * math.sqrt(shrink)))
+    return out
+
+
+def apply_game(game, skills, stats):
+    """Update per-bot totals and skills with one finished game."""
     players = game["players"]
     n = len(players)
     for p in players:
@@ -108,21 +156,21 @@ def apply_game(game, ratings, stats):
         s["wins"] += p["rank"] == 1
         s["score"] += (n - p["rank"]) / (n - 1) if n > 1 else 1.0
         s["errors"] += "(" in p["status"]
-        ratings.setdefault(p["bot"], START_RATING)
-    # Multiplayer Elo: every pair of different bots is a duel won by the
-    # better-ranked one, with K split over the n - 1 opponents.
-    delta = {}
-    for a in players:
-        for b in players:
-            if a["rank"] >= b["rank"] or a["bot"] == b["bot"]:
-                continue
-            ra, rb = ratings[a["bot"]], ratings[b["bot"]]
-            expected = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
-            change = K_FACTOR * (1.0 - expected) / (n - 1)
-            delta[a["bot"]] = delta.get(a["bot"], 0.0) + change
-            delta[b["bot"]] = delta.get(b["bot"], 0.0) - change
-    for bot, d in delta.items():
-        ratings[bot] += d
+        skills.setdefault(p["bot"], [MU, SIGMA])
+    if n < 2:
+        return
+    new = rate([skills[p["bot"]] for p in players], [p["rank"] for p in players])
+    # A bot with several seats (fewer bots than seats) gets the sum of its
+    # seats' mean changes and the product of their variance shrinks.
+    change = {}
+    for p, (mu, sigma) in zip(players, new):
+        old_mu, old_sigma = skills[p["bot"]]
+        d = change.setdefault(p["bot"], [0.0, 1.0])
+        d[0] += mu - old_mu
+        d[1] *= sigma * sigma / (old_sigma * old_sigma + TAU * TAU)
+    for bot, (dmu, shrink) in change.items():
+        mu, sigma = skills[bot]
+        skills[bot] = [mu + dmu, math.sqrt((sigma * sigma + TAU * TAU) * shrink)]
 
 
 class Arena:
@@ -141,10 +189,10 @@ class Arena:
         self.paused = False
         self.running = {}            # game id -> spec
         self.games = []              # summaries, oldest first
-        self.ratings = {}
+        self.skills = {}             # bot -> [mu, sigma]
         self.stats = {}
         # Snapshot of everything older than the games kept in games.jsonl.
-        self.base = {"ratings": {}, "stats": {}, "games": 0, "max_id": 0, "last_fold_ids": []}
+        self.base = {"skill": {}, "stats": {}, "games": 0, "max_id": 0, "last_fold_ids": []}
         self.started = time.time()
         self.played_since_start = 0
         self.next_id = 1
@@ -161,7 +209,13 @@ class Arena:
         if os.path.exists(self.state_path):
             with open(self.state_path) as f:
                 self.base = json.load(f)
-        self.ratings = dict(self.base["ratings"])
+        if "skill" not in self.base:
+            # Snapshot from the Elo arena: its Elo ratings cannot be turned
+            # into skills, so skills restart from the games still listed
+            # (totals are kept).
+            self.base.pop("ratings", None)
+            self.base["skill"] = {}
+        self.skills = {b: list(v) for b, v in self.base["skill"].items()}
         self.stats = {b: dict(s) for b, s in self.base["stats"].items()}
         # Games folded into the snapshot just before a crash may still be in
         # games.jsonl: skip them.
@@ -187,9 +241,9 @@ class Arena:
                 os.remove(os.path.join(self.replay_dir, name))
 
     def _record(self, game):
-        """Add a finished game to the in-memory state and update ratings."""
+        """Add a finished game to the in-memory state and update skills."""
         self.games.append(game)
-        apply_game(game, self.ratings, self.stats)
+        apply_game(game, self.skills, self.stats)
 
     def finish(self, game):
         with self.lock:
@@ -214,7 +268,7 @@ class Arena:
         fold, keep = self.games[:extra], self.games[extra:]
         base = self.base
         for g in fold:
-            apply_game(g, base["ratings"], base["stats"])
+            apply_game(g, base["skill"], base["stats"])
             if g.get("replay"):
                 try:
                     os.remove(os.path.join(self.replay_dir, g["replay"]))
@@ -272,7 +326,7 @@ class Arena:
             if cached and (cached[0] == key or time.time() - cached[1] < ANALYTICS_TTL):
                 return cached[2]
             games = list(self.games)
-            ratings = dict(self.base["ratings"])
+            skills = {b: list(v) for b, v in self.base["skill"].items()}
             stats = {b: dict(v) for b, v in self.base["stats"].items()}
             first = self.base["games"] + 1
         step = max(1, len(games) // 400)
@@ -280,7 +334,7 @@ class Arena:
         h2h = {}      # h2h[a][b] = [games where a finished ahead of b, games together]
         per = {}
         for k, g in enumerate(games):
-            apply_game(g, ratings, stats)
+            apply_game(g, skills, stats)
             players = g["players"]
             n = len(players)
             for a in players:
@@ -310,15 +364,15 @@ class Arena:
                                     "rivals": [q["bot"] for q in players if q is not p]})
             if k % step == 0 or k == len(games) - 1:
                 xs.append(first + k)
-                for bot, r in ratings.items():
-                    curves.setdefault(bot, [None] * (len(xs) - 1)).append(round(r, 1))
+                for bot, sk in skills.items():
+                    curves.setdefault(bot, [None] * (len(xs) - 1)).append(round(conservative(sk), 2))
                 for bot, c in curves.items():
                     if len(c) < len(xs):
                         c.append(None)
         for b in per.values():
             b["recent"] = b["recent"][-60:]
         # Bots in order of first appearance ever, so chart colours never move.
-        result = {"order": list(ratings), "x": xs, "ratings": curves, "h2h": h2h, "bots": per,
+        result = {"order": list(stats), "x": xs, "ratings": curves, "h2h": h2h, "bots": per,
                   "first_game": first, "games": len(games)}
         with self.lock:
             self._analytics = (key, time.time(), result)
@@ -329,7 +383,9 @@ class Arena:
             board = []
             active = self.bots()
             for bot, s in self.stats.items():
-                board.append({"bot": bot, "rating": round(self.ratings[bot]), "games": s["games"],
+                mu, sigma = self.skills.get(bot, (MU, SIGMA))
+                board.append({"bot": bot, "rating": round(mu - 3 * sigma, 2), "mu": round(mu, 2),
+                              "sigma": round(sigma, 2), "games": s["games"],
                               "wins": s["wins"], "errors": s["errors"], "active": bot in active,
                               "score": round(s["score"] / s["games"], 3) if s["games"] else 0})
             # Bots still playing first; retired ones keep their final rating below.

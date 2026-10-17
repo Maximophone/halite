@@ -1,19 +1,23 @@
-//! ApexBeta: ApexAlpha's policy, plus a one-turn combat search at the front.
+//! ApexGamma: ApexBeta with a joint search of front pieces and a stronger
+//! pull toward fights.
 //!
-//! ApexAlpha won on economy and only broke even in fights: against
-//! PredatorBot it lost about as much strength as it dealt, even in the games
-//! it won. ApexBeta keeps the whole ApexAlpha policy as its default move, then
-//! refines every piece near an enemy with an exact one-turn simulation:
+//! ApexBeta (see apex_beta.rs) runs the ApexAlpha policy, then refines every
+//! piece within 3 steps of an enemy with an exact one-turn simulation, enemies
+//! predicted by running the same policy from their seat. Its search changed one
+//! piece at a time, so it could not find moves that only pay when two pieces
+//! act together (two pieces stepping into a gap at once). ApexGamma adds:
 //!
-//!   1. Enemy prediction. The same policy is run from each nearby enemy's
-//!      seat to predict its moves ("the enemy plays like us"). Each move set is
-//!      scored as a mix of that prediction and "every enemy stays still".
-//!   2. Exact outcome. Moves, merges, the 255 cap, overkill damage, neutral
-//!      damage and who owns each site afterwards follow the engine's rules.
-//!      Score = enemy strength destroyed - our strength lost + the production
-//!      of the sites held, minus the enemy's.
-//!   3. Search. Coordinate ascent: each front piece in turn (strongest first)
-//!      takes the best of its five moves given everyone else's, a few passes.
+//!   1. Pair search. After each single-piece pass, every pair of front pieces
+//!      within 2 steps of each other tries all joint moves. 59% of 1v1s
+//!      against ApexBeta (1000 games; 48% with pairs off on the same seeds).
+//!   2. Fight value 3 (was 1.5): interior strength answers fights harder.
+//!      About +3 points on top of pairs.
+//!
+//! Tried and switched off (still available): triples (APEX_TRIPLES=1, no
+//! gain over pairs), per-opponent learned follow rates with sampled
+//! scenarios (APEX_SAMPLES=8: 44% vs ApexBeta, worse than Beta's two
+//! correlated scenarios). Lower weight on enemy losses in FFA (APEX_LAMBDA
+//! 0.5-0.7) is much worse in every format.
 //!
 //! Every constant reads an APEX_* environment variable (see Params::load).
 
@@ -58,6 +62,8 @@ struct Params {
     follow: f64,      // prior chance that a piece predicted to move does move...
     prior: f64,       // ...worth this many observations; then learnt per opponent
     pairs: f64,       // also search joint moves of front pieces within 2 steps (0 = off)
+    triples: f64,     // ...and of three pieces all within 2 steps of each other (0 = off)
+    max_triples: f64, // at most this many triples per turn (time limit)
 }
 
 fn env(name: &str, default: f64) -> f64 {
@@ -72,7 +78,7 @@ impl Params {
             min_move: env("APEX_MIN_MOVE", 25.0) as i32,
             decay: env("APEX_DECAY", 0.8),
             fight_decay: env("APEX_FIGHT_DECAY", 0.55),
-            fight_base: env("APEX_FIGHT", 1.5),
+            fight_base: env("APEX_FIGHT", 3.0),
             open_weight: env("APEX_OPEN", 0.5),
             wall_value: env("APEX_WALL", 0.0),
             harm_weight: env("APEX_HARM", 0.6),
@@ -101,6 +107,8 @@ impl Params {
             follow: env("APEX_FOLLOW", 0.6),
             prior: env("APEX_PRIOR", 20.0),
             pairs: env("APEX_PAIRS", 1.0),
+            triples: env("APEX_TRIPLES", 0.0),
+            max_triples: env("APEX_MAX_TRIPLES", 400.0),
         }
     }
 }
@@ -872,6 +880,18 @@ impl Bot {
                 }
             }
         }
+        let mut triples: Vec<(usize, usize, usize)> = Vec::new();
+        if p.triples > 0.0 {
+            let close: std::collections::HashSet<(usize, usize)> = pairs.iter().copied().collect();
+            for &(a, b) in &pairs {
+                for c in b + 1..pieces.len() {
+                    if close.contains(&(a, c)) && close.contains(&(b, c)) {
+                        triples.push((a, b, c));
+                    }
+                }
+            }
+            triples.truncate(p.max_triples as usize);
+        }
         for _ in 0..p.passes as usize {
             let mut changed = false;
             for (pi, &i) in pieces.iter().enumerate() {
@@ -938,6 +958,53 @@ impl Bot {
                     sim.apply(b, best.1, 1);
                     mv[a] = best.0;
                     mv[b] = best.1;
+                    changed = true;
+                }
+            }
+            // Triples: three pieces all within 2 steps of each other.
+            for &(ka, kb, kc) in &triples {
+                let ks = [ka, kb, kc];
+                let ps = [pieces[ka], pieces[kb], pieces[kc]];
+                let cur = [mv[ps[0]], mv[ps[1]], mv[ps[2]]];
+                let mut best = cur;
+                let mut best_gain = 0.0;
+                for da in DIRECTIONS {
+                    for db in DIRECTIONS {
+                        for dc in DIRECTIONS {
+                            let new = [da, db, dc];
+                            if (0..3).any(|t| new[t] == cur[t]) {
+                                continue; // fewer changes were tried above
+                            }
+                            let mut sites: Vec<usize> = Vec::with_capacity(9);
+                            for t in 0..3 {
+                                sites.push(ps[t]);
+                                sites.push(sim.dest(ps[t], cur[t]));
+                                sites.push(sim.dest(ps[t], new[t]));
+                            }
+                            let before = sim.local(&sites, &mut buf);
+                            for t in 0..3 {
+                                sim.apply(ps[t], cur[t], -1);
+                                sim.apply(ps[t], new[t], 1);
+                            }
+                            let after = sim.local(&sites, &mut buf);
+                            for t in 0..3 {
+                                sim.apply(ps[t], new[t], -1);
+                                sim.apply(ps[t], cur[t], 1);
+                            }
+                            let gain = after - before - (0..3).map(|t| bias_of(ks[t], new[t], cur[t])).sum::<f64>();
+                            if gain > best_gain + 1e-9 {
+                                best_gain = gain;
+                                best = new;
+                            }
+                        }
+                    }
+                }
+                if best != cur {
+                    for t in 0..3 {
+                        sim.apply(ps[t], cur[t], -1);
+                        sim.apply(ps[t], best[t], 1);
+                        mv[ps[t]] = best[t];
+                    }
                     changed = true;
                 }
             }

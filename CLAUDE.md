@@ -34,7 +34,7 @@ Sources used for the rules:
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (strongest, see "ApexBeta"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -255,6 +255,35 @@ Prediction accuracy (move vs stay, enemy pieces near us, `APEX_DEBUG=1`): about 
 PredatorBot, 0.67 vs ImprovedBot, 0.80 vs ApexAlpha, 0.62 vs ApexBeta. Next step for ApexGamma:
 learn the enemy model in game (the `observe` scoring already exists; weight scenarios per
 opponent by it), add a greedy-attack scenario, then retune.
+
+## ApexGamma (2026-10-17)
+
+`apex_gamma.rs` = ApexBeta plus a joint search of pairs of front pieces within 2 steps of each
+other (all 25 joint moves, after each single-piece pass) and fight value 3 (was 1.5). Fairness:
+like Beta, it models enemies with ApexAlpha's policy only (depth 1), so Gamma vs Beta is a fair
+test (Gamma does not contain an exact model of Beta).
+
+Results, fresh seeds (`--seed 41`, 1000 1v1 / 400 FFA games vs ApexBeta; `--seed 4`, 200 vs the
+PredatorBot pool): 62.8% of 1v1s vs ApexBeta; FFA vs ApexBetas unchanged (4-player 33.8% vs
+Beta's own 32.0% on the same seeds, 6-player 31.8% vs 31.2%). PredatorBot pool, Gamma vs
+Beta on the same seeds: 1v1 97.5% vs 97%, 4-player 76% vs 74%, 6-player 71% vs 68.5%. Worst
+turn 7 ms (6-player 50x50).
+
+Lessons (all at 1000 games; one standard error is 1.6 points):
+- Pairs: 58.9% vs Beta, 48.1% with pairs off on the same seeds. Triples: no further gain. Passes,
+  margin, prediction weight: flat. The search is saturated; the next gain is in the objective.
+- Learned enemy model (per opponent, chance that a piece predicted to move does move: 0.4 vs
+  ApexBeta, 0.56-0.68 vs others; pieces predicted to stay move only 3-9% of the time), with 8
+  sampled independent scenarios: worse (44%). Correlated "all follow" beats independent sampling.
+- Mirror games are decided in the ~60 turns after first contact: production is equal at contact
+  (815 vs 803), 60 turns later the winner leads 1791 to 1433 (112/117), combat losses equal,
+  winner spent more on neutrals. But pulling strength away from fights (fight value 0.7) is worse
+  and more pull (3-6) is better, so this is effect, not cause.
+- FFA: weighting enemy losses less (lambda 0.5-0.7) is much worse in every format.
+- Solo benchmark: Gamma = Beta = Alpha (no enemies). All expansion knobs flat within 1%. 25% of
+  production is lost to moving pieces (a moving piece produces nothing that turn), and 75% of
+  strength sits in the interior, two thirds of it in transit: routing is the economy lever left.
+- Experiments are the main time cost; the arena competes for CPU, pause it during sweeps.
 
 ## Ideas not done yet (only if Maxime asks)
 

@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halite Replay</title>
+<style>
+  :root {
+    --bg: #0b0e13;
+    --panel: #121720;
+    --line: #232b38;
+    --text: #e6e9ef;
+    --muted: #8a93a3;
+    --accent: #f2c14e;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; padding: 10px 16px; border-bottom: 1px solid var(--line); }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 0.08em; text-transform: uppercase; }
+  header h1 span { color: var(--accent); }
+  header .meta { color: var(--muted); font-size: 13px; }
+  header label.file { margin-left: auto; cursor: pointer; color: var(--muted); border: 1px solid var(--line);
+    padding: 5px 10px; border-radius: 6px; }
+  header label.file:hover { color: var(--text); }
+  header input[type=file] { display: none; }
+  main { display: grid; grid-template-columns: 1fr 320px; gap: 0; height: calc(100% - 50px - 56px); min-height: 300px; }
+  #stage { position: relative; display: flex; align-items: center; justify-content: center; overflow: hidden; cursor: grab; }
+  #stage.dragging { cursor: grabbing; }
+  #board { image-rendering: pixelated; }
+  #tip { position: absolute; pointer-events: none; background: rgba(10,12,16,0.92); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 8px; font-size: 12px; display: none; white-space: nowrap; }
+  #drop { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
+    gap: 6px; color: var(--muted); text-align: center; padding: 16px; }
+  #drop strong { color: var(--text); font-size: 18px; }
+  aside { border-left: 1px solid var(--line); background: var(--panel); padding: 14px; overflow-y: auto; }
+  aside h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.1em; color: var(--muted); margin: 4px 0 10px; font-weight: 600; }
+  .player { display: grid; grid-template-columns: 12px 1fr auto; gap: 4px 10px; align-items: center; padding: 8px 0; border-bottom: 1px solid var(--line); }
+  .player .sw { width: 12px; height: 12px; border-radius: 3px; }
+  .player .nm { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .player .rk { color: var(--muted); font-size: 12px; }
+  .player .nums { grid-column: 2 / 4; display: flex; gap: 12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+  .player .nums b { color: var(--text); font-weight: 500; }
+  .player.dead .nm { text-decoration: line-through; color: var(--muted); }
+  .tabs { display: flex; gap: 4px; margin: 18px 0 8px; }
+  .tabs button { flex: 1; background: none; border: 1px solid var(--line); color: var(--muted); padding: 4px; border-radius: 5px; cursor: pointer; font: inherit; font-size: 12px; }
+  .tabs button.on { color: var(--text); border-color: var(--muted); }
+  #chart { width: 100%; height: 160px; display: block; }
+  .opts { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; color: var(--muted); font-size: 13px; }
+  .keys { margin-top: 14px; color: var(--muted); font-size: 12px; }
+  footer { height: 56px; display: flex; align-items: center; gap: 10px; padding: 0 16px; border-top: 1px solid var(--line); }
+  footer button { background: var(--panel); border: 1px solid var(--line); color: var(--text); border-radius: 6px;
+    width: 36px; height: 32px; cursor: pointer; font-size: 14px; }
+  footer button:hover { border-color: var(--muted); }
+  #slider { flex: 1; accent-color: var(--accent); }
+  #frameLbl { font-variant-numeric: tabular-nums; color: var(--muted); min-width: 110px; text-align: right; }
+  select { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; height: 32px; padding: 0 6px; }
+  @media (max-width: 760px) {
+    main { grid-template-columns: 1fr; grid-template-rows: 60vh auto; height: auto; }
+    aside { border-left: none; border-top: 1px solid var(--line); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Halite</span> replay</h1>
+  <div class="meta" id="meta">no replay loaded</div>
+  <label class="file">Open .hlt<input type="file" id="file" accept=".hlt,.json"></label>
+</header>
+<main>
+  <div id="stage">
+    <canvas id="board"></canvas>
+    <div id="tip"></div>
+    <div id="drop"><strong>Drop a .hlt replay here</strong><span>or use "Open .hlt" above. Replays are written to the replays/ folder.</span></div>
+  </div>
+  <aside>
+    <h2>Players</h2>
+    <div id="players"></div>
+    <div class="tabs">
+      <button data-m="territory" class="on">Territory</button>
+      <button data-m="production">Production</button>
+      <button data-m="strength">Strength</button>
+    </div>
+    <canvas id="chart"></canvas>
+    <div class="opts">
+      <label><input type="checkbox" id="optProd" checked> Production background</label>
+      <label><input type="checkbox" id="optMoves"> Show moves</label>
+    </div>
+    <div class="keys">Space play/pause · ← → step · Home/End · drag the map to pan (it wraps)</div>
+  </aside>
+</main>
+<footer>
+  <button id="bStart" title="First frame">⏮</button>
+  <button id="bPrev" title="Previous frame">◀</button>
+  <button id="bPlay" title="Play/pause">▶</button>
+  <button id="bNext" title="Next frame">▶︎|</button>
+  <input type="range" id="slider" min="0" max="0" value="0">
+  <select id="speed">
+    <option value="4">4 fps</option><option value="10">10 fps</option>
+    <option value="20" selected>20 fps</option><option value="40">40 fps</option><option value="60">60 fps</option>
+  </select>
+  <div id="frameLbl">0 / 0</div>
+</footer>
+<!--EMBEDDED_REPLAY-->
+<script>
+(() => {
+  const COLORS = ["#7c8597", "#f2c14e", "#4ea8f2", "#e8576b", "#5fd38d", "#b48cf2", "#f28c4e"];
+  const $ = id => document.getElementById(id);
+  const board = $("board"), ctx = board.getContext("2d");
+  const chart = $("chart"), cctx = chart.getContext("2d");
+  let R = null, frame = 0, playing = false, timer = null, metric = "territory";
+  let stats = null, maxProd = 1, ox = 0, oy = 0, cell = 10;
+
+  function load(rep) {
+    R = rep; frame = 0; ox = 0; oy = 0;
+    maxProd = Math.max(1, ...R.productions);
+    computeStats();
+    $("drop").style.display = "none";
+    $("slider").max = R.num_frames - 1;
+    $("meta").textContent = `${R.width}×${R.height} · ${R.num_players} players · ${R.num_frames - 1} turns · seed ${R.seed}`;
+    resize(); setFrame(0);
+  }
+
+  function computeStats() {
+    const n = R.num_players, N = R.width * R.height;
+    stats = { territory: [], production: [], strength: [], death: new Array(n + 1).fill(null) };
+    R.frames.forEach(([o, s], f) => {
+      const t = new Array(n + 1).fill(0), p = new Array(n + 1).fill(0), st = new Array(n + 1).fill(0);
+      for (let i = 0; i < N; i++) { const k = o[i]; t[k]++; p[k] += R.productions[i]; st[k] += s[i]; }
+      stats.territory.push(t); stats.production.push(p); stats.strength.push(st);
+      for (let k = 1; k <= n; k++) if (t[k] === 0 && stats.death[k] === null) stats.death[k] = f;
+    });
+  }
+
+  function resize() {
+    if (!R) return;
+    const st = $("stage"), w = st.clientWidth - 16, h = st.clientHeight - 16;
+    cell = Math.max(2, Math.floor(Math.min(w / R.width, h / R.height)));
+    const dpr = window.devicePixelRatio || 1;
+    board.style.width = cell * R.width + "px"; board.style.height = cell * R.height + "px";
+    board.width = cell * R.width * dpr; board.height = cell * R.height * dpr;
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    const cw = chart.clientWidth;
+    chart.width = cw * dpr; chart.height = 160 * dpr; cctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    draw();
+  }
+
+  function hexA(hex, a) {
+    const v = parseInt(hex.slice(1), 16);
+    return `rgba(${v >> 16},${(v >> 8) & 255},${v & 255},${a})`;
+  }
+
+  function draw() {
+    if (!R) return;
+    const W = R.width, H = R.height, [own, str] = R.frames[frame];
+    const showProd = $("optProd").checked;
+    ctx.fillStyle = "#0b0e13"; ctx.fillRect(0, 0, W * cell, H * cell);
+    for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) {
+      const i = y * W + x;
+      const px = ((x + ox) % W + W) % W * cell, py = ((y + oy) % H + H) % H * cell;
+      if (showProd) {
+        const l = Math.round(14 + 60 * Math.sqrt(R.productions[i] / maxProd));
+        ctx.fillStyle = `rgb(${l},${l + 2},${l + 8})`; ctx.fillRect(px, py, cell, cell);
+      }
+      const o = own[i], s = str[i];
+      if (o > 0) { ctx.fillStyle = hexA(COLORS[o], 0.28); ctx.fillRect(px, py, cell, cell); }
+      if (s > 0) {
+        const side = cell * Math.sqrt(s / 255), off = (cell - side) / 2;
+        ctx.fillStyle = o > 0 ? COLORS[o] : "rgba(150,160,180,0.22)";
+        ctx.fillRect(px + off, py + off, side, side);
+      }
+    }
+    if ($("optMoves").checked && R.moves && frame < R.moves.length && cell >= 6) {
+      const mv = R.moves[frame];
+      ctx.strokeStyle = "rgba(255,255,255,0.85)"; ctx.lineWidth = Math.max(1, cell / 10);
+      ctx.beginPath();
+      for (let i = 0; i < mv.length; i++) {
+        const d = mv.charCodeAt(i) - 48; if (!d) continue;
+        const x = i % W, y = (i / W) | 0;
+        const cx = (((x + ox) % W + W) % W + 0.5) * cell, cy = (((y + oy) % H + H) % H + 0.5) * cell;
+        const L = cell * 0.45, dx = [0, 0, 1, 0, -1][d], dy = [0, -1, 0, 1, 0][d];
+        ctx.moveTo(cx, cy); ctx.lineTo(cx + dx * L, cy + dy * L);
+      }
+      ctx.stroke();
+    }
+    drawPlayers(); drawChart();
+    $("slider").value = frame;
+    $("frameLbl").textContent = `turn ${frame} / ${R.num_frames - 1}`;
+  }
+
+  function drawPlayers() {
+    const n = R.num_players, el = $("players");
+    const t = stats.territory[frame], p = stats.production[frame], s = stats.strength[frame];
+    const order = [...Array(n).keys()].map(i => i + 1).sort((a, b) => t[b] - t[a] || s[b] - s[a]);
+    const final = {}; (R.results || []).forEach(r => final[r.player] = r.rank);
+    el.innerHTML = order.map(k => {
+      const dead = stats.death[k] !== null && stats.death[k] <= frame;
+      const rank = final[k] ? `#${final[k]} final` : "";
+      return `<div class="player ${dead ? "dead" : ""}">
+        <div class="sw" style="background:${COLORS[k]}"></div>
+        <div class="nm" title="${esc(R.player_names[k - 1])}">${esc(R.player_names[k - 1])}</div>
+        <div class="rk">${rank}</div>
+        <div class="nums"><span>terr <b>${t[k]}</b></span><span>prod <b>${p[k]}</b></span><span>str <b>${s[k]}</b></span></div>
+      </div>`;
+    }).join("");
+  }
+
+  function esc(s) { return String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+
+  function drawChart() {
+    const w = chart.clientWidth, h = 160, data = stats[metric], F = data.length;
+    cctx.clearRect(0, 0, w, h);
+    let max = 1; data.forEach(row => { for (let k = 1; k < row.length; k++) max = Math.max(max, row[k]); });
+    cctx.strokeStyle = "#232b38"; cctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) { const y = 6 + (h - 12) * g / 4; cctx.beginPath(); cctx.moveTo(0, y); cctx.lineTo(w, y); cctx.stroke(); }
+    for (let k = 1; k <= R.num_players; k++) {
+      cctx.strokeStyle = COLORS[k]; cctx.lineWidth = 1.6; cctx.beginPath();
+      data.forEach((row, f) => {
+        const x = F > 1 ? f / (F - 1) * w : 0, y = h - 6 - (h - 12) * row[k] / max;
+        f ? cctx.lineTo(x, y) : cctx.moveTo(x, y);
+      });
+      cctx.stroke();
+    }
+    const fx = F > 1 ? frame / (F - 1) * w : 0;
+    cctx.strokeStyle = "rgba(255,255,255,0.5)"; cctx.beginPath(); cctx.moveTo(fx, 0); cctx.lineTo(fx, h); cctx.stroke();
+    cctx.fillStyle = "#8a93a3"; cctx.font = "11px system-ui"; cctx.fillText(String(max), 4, 14);
+  }
+
+  function setFrame(f) { if (!R) return; frame = Math.max(0, Math.min(R.num_frames - 1, f)); draw(); }
+  function play(on) {
+    playing = on ?? !playing; $("bPlay").textContent = playing ? "❚❚" : "▶";
+    clearInterval(timer);
+    if (playing) {
+      if (frame >= R.num_frames - 1) setFrame(0);
+      timer = setInterval(() => { if (frame >= R.num_frames - 1) play(false); else setFrame(frame + 1); }, 1000 / +$("speed").value);
+    }
+  }
+
+  // Controls
+  $("bPlay").onclick = () => R && play();
+  $("bPrev").onclick = () => { play(false); setFrame(frame - 1); };
+  $("bNext").onclick = () => { play(false); setFrame(frame + 1); };
+  $("bStart").onclick = () => { play(false); setFrame(0); };
+  $("slider").oninput = e => { play(false); setFrame(+e.target.value); };
+  $("speed").onchange = () => playing && play(true);
+  $("optProd").onchange = draw; $("optMoves").onchange = draw;
+  document.querySelectorAll(".tabs button").forEach(b => b.onclick = () => {
+    document.querySelectorAll(".tabs button").forEach(x => x.classList.remove("on"));
+    b.classList.add("on"); metric = b.dataset.m; if (R) drawChart();
+  });
+  document.addEventListener("keydown", e => {
+    if (!R || e.target.tagName === "SELECT") return;
+    if (e.key === " ") { e.preventDefault(); play(); }
+    else if (e.key === "ArrowLeft") { play(false); setFrame(frame - 1); }
+    else if (e.key === "ArrowRight") { play(false); setFrame(frame + 1); }
+    else if (e.key === "Home") { play(false); setFrame(0); }
+    else if (e.key === "End") { play(false); setFrame(R.num_frames - 1); }
+  });
+  window.addEventListener("resize", resize);
+
+  // Pan (wrap-around) and hover
+  let drag = null;
+  board.addEventListener("mousedown", e => { drag = { x: e.clientX, y: e.clientY, ox, oy }; $("stage").classList.add("dragging"); });
+  window.addEventListener("mouseup", () => { drag = null; $("stage").classList.remove("dragging"); });
+  window.addEventListener("mousemove", e => {
+    if (!R) return;
+    if (drag) {
+      ox = drag.ox + Math.round((e.clientX - drag.x) / cell);
+      oy = drag.oy + Math.round((e.clientY - drag.y) / cell);
+      draw();
+    }
+    const r = board.getBoundingClientRect(), tip = $("tip");
+    const cx = Math.floor((e.clientX - r.left) / cell), cy = Math.floor((e.clientY - r.top) / cell);
+    if (drag || cx < 0 || cy < 0 || cx >= R.width || cy >= R.height) { tip.style.display = "none"; return; }
+    const x = ((cx - ox) % R.width + R.width) % R.width, y = ((cy - oy) % R.height + R.height) % R.height;
+    const i = y * R.width + x, [o, s] = R.frames[frame];
+    tip.innerHTML = `(${x}, ${y}) · ${o[i] ? esc(R.player_names[o[i] - 1]) : "neutral"}<br>strength ${s[i]} · production ${R.productions[i]}`;
+    const sr = $("stage").getBoundingClientRect();
+    tip.style.display = "block";
+    tip.style.left = Math.min(e.clientX - sr.left + 14, sr.width - 180) + "px";
+    tip.style.top = (e.clientY - sr.top + 14) + "px";
+  });
+  board.addEventListener("mouseleave", () => $("tip").style.display = "none");
+
+  // Loading
+  function readFile(f) {
+    const rd = new FileReader();
+    rd.onload = () => { try { play(false); load(JSON.parse(rd.result)); } catch (err) { alert("Could not read replay: " + err.message); } };
+    rd.readAsText(f);
+  }
+  $("file").onchange = e => e.target.files[0] && readFile(e.target.files[0]);
+  document.addEventListener("dragover", e => e.preventDefault());
+  document.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) readFile(f); });
+
+  if (window.EMBEDDED_REPLAY) load(window.EMBEDDED_REPLAY);
+})();
+</script>
+</body>
+</html>

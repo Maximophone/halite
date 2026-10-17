@@ -38,6 +38,7 @@ BOT_GLOB = os.path.join(HERE, "starter-kit", "python", "*Bot.py")
 
 START_RATING = 1500.0
 K_FACTOR = 32.0
+ANALYTICS_TTL = 5.0       # seconds the chart data is reused while games finish
 COMPACT_SLACK = 1000      # games past --history before games.jsonl is rewritten
 # Player counts and how often each is picked.
 PLAYER_COUNTS = [(2, 0.5), (3, 0.1), (4, 0.3), (6, 0.1)]
@@ -238,6 +239,70 @@ class Arena:
             self.running[gid] = spec
         return spec
 
+    def analytics(self):
+        """
+        Chart data over the games still listed (the latest --history), cached
+        for a few seconds: rating curves, head-to-head counts and per-bot
+        breakdowns. Ratings start from the snapshot of older games.
+        """
+        with self.lock:
+            key = self.base["games"] + len(self.games)
+            cached = getattr(self, "_analytics", None)
+            if cached and (cached[0] == key or time.time() - cached[1] < ANALYTICS_TTL):
+                return cached[2]
+            games = list(self.games)
+            ratings = dict(self.base["ratings"])
+            stats = {b: dict(v) for b, v in self.base["stats"].items()}
+            first = self.base["games"] + 1
+        step = max(1, len(games) // 400)
+        xs, curves = [], {}
+        h2h = {}      # h2h[a][b] = [games where a finished ahead of b, games together]
+        per = {}
+        for k, g in enumerate(games):
+            apply_game(g, ratings, stats)
+            players = g["players"]
+            n = len(players)
+            for a in players:
+                for b in players:
+                    if a["bot"] == b["bot"]:
+                        continue
+                    cell = h2h.setdefault(a["bot"], {}).setdefault(b["bot"], [0, 0])
+                    cell[0] += a["rank"] < b["rank"]
+                    cell[1] += 1
+            side = max(g["width"], g["height"])
+            size = "20-25" if side <= 25 else "26-35" if side <= 35 else "36-45" if side <= 45 else "46-50"
+            seen = set()
+            for p in players:
+                b = per.setdefault(p["bot"], {"by_players": {}, "by_size": {}, "recent": [], "turns_win": [0, 0], "turns_loss": [0, 0]})
+                if p["bot"] in seen:
+                    continue  # count a bot once per game (its best seat)
+                seen.add(p["bot"])
+                win = p["rank"] == 1
+                for bucket, label in ((b["by_players"], str(n)), (b["by_size"], size)):
+                    c = bucket.setdefault(label, [0, 0])
+                    c[0] += win
+                    c[1] += 1
+                t = b["turns_win"] if win else b["turns_loss"]
+                t[0] += g["turns"]
+                t[1] += 1
+                b["recent"].append({"id": g["id"], "rank": p["rank"], "n": n, "replay": g.get("replay"),
+                                    "rivals": [q["bot"] for q in players if q is not p]})
+            if k % step == 0 or k == len(games) - 1:
+                xs.append(first + k)
+                for bot, r in ratings.items():
+                    curves.setdefault(bot, [None] * (len(xs) - 1)).append(round(r, 1))
+                for bot, c in curves.items():
+                    if len(c) < len(xs):
+                        c.append(None)
+        for b in per.values():
+            b["recent"] = b["recent"][-60:]
+        # Bots in order of first appearance ever, so chart colours never move.
+        result = {"order": list(ratings), "x": xs, "ratings": curves, "h2h": h2h, "bots": per,
+                  "first_game": first, "games": len(games)}
+        with self.lock:
+            self._analytics = (key, time.time(), result)
+        return result
+
     def state(self, limit, bot_filter):
         with self.lock:
             board = []
@@ -296,6 +361,8 @@ def make_handler(arena):
                 self._file(os.path.join(HERE, "arena.html"), "text/html; charset=utf-8")
             elif url.path == "/viewer.html":
                 self._file(os.path.join(HERE, "viewer.html"), "text/html; charset=utf-8")
+            elif url.path == "/api/analytics":
+                self._send(200, json.dumps(arena.analytics(), separators=(",", ":")).encode(), "application/json")
             elif url.path == "/api/state":
                 limit = min(1000, int(q.get("limit", ["100"])[0]))
                 body = json.dumps(arena.state(limit, q.get("bot", [""])[0])).encode()

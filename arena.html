@@ -195,6 +195,7 @@
 
   function render(st) {
     window.arenaBoard = st.leaderboard;
+    window.arenaBoardChanged && window.arenaBoardChanged();
     paused = st.paused;
     $("pause").textContent = paused ? "Resume" : "Pause";
     $("meta").innerHTML = `<span class="dot${paused ? " off" : ""}"></span>` +
@@ -503,6 +504,8 @@
   function drawAll() { if (!A) return; botPanel(); ratingChart(); h2hChart(); }
 
   window.arenaSelect = bot => { sel = bot; drawAll(); };
+  // Leaderboard numbers refresh every 3 s: keep the panel's tiles in step.
+  window.arenaBoardChanged = () => { if (A && sel) botPanel(); };
   $("botClose").onclick = () => window.arenaSetFilter("");
   async function load() {
     try { A = await (await fetch("/api/analytics")).json(); drawAll(); } catch (e) {}

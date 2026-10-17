@@ -35,7 +35,7 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"), `hal_lite` (port of a 2016 competitor's bot, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -328,6 +328,26 @@ budget 800 ms (`HAL_TIME_MS`, Java: 900) never binds: worst turn 10 ms on 50x50 
 Results (100 games per format, `--seed 5`): vs PredatorBot pool 86% 1v1, 83% ffa4, 68% ffa6
 (ApexGamma on its own seeds: 97.5 / 76 / 71); vs ApexGamma 34% of 1v1s, 32% of ffa4 (2 ApexGammas
 + ImprovedBot). A 19th-place 2016 bot is a real opponent for the Apex line.
+
+`dex_bot.rs`: port of DexBot at HEAD of his repo (his README: the submitted bot is 780144e plus
+the non-aggression changes of HEAD; the rest of the diff is comments and last-turn handling).
+Pipeline per turn: Combatant (fights at our border, pieces within 8 steps walk to the nearest
+fight), MoveMaker (border value `G = prod^2/strength` blurred by a Gaussian sigma 1.2, plus a tunnel
+value `T_i = sum_j G_j / D_ij` over the neutrals j closest to border site i, D an all-pairs
+Dijkstra computed once at init; idle pieces strongest first take `argmax G/(dist+t) + k T/(dist+10)`
+with `k = 1.5 - 0.1 * enemies`), Resolver (chessboard: only `(x+y+turn)` even sites follow the plan
+after turn 40 or once in combat, odd ones dodge; cap control), Nonaggressor (never break a neutral
+wall touching an enemy, except the weakest once we are twice as strong). numpy semantics kept:
+`[x, y]` arrays (`k = x*h + y`), first-index argmax, integer truncation of `combat_heur /= 10000`,
+scipy's sparse Dijkstra dropping zero-cost edges (`int(strength/(prod+0.1)) == 0`) and taking
+either direction (`directed=False`), `safe_to_take` reaching 2. Changes: stable argsort, site-order
+sets, seeded `random.choice`, and `np.min([])` (a crash in the original) skips the step (never
+fired in 6 instrumented games). Init (2,500 Dijkstras on 50x50) well under the 15 s limit, worst
+turn 20 ms.
+Results (100 games per format, `--seed 5`): vs PredatorBot pool 100% 1v1, 95% ffa4, 85% ffa6;
+vs ApexGamma 65% 1v1, 51% ffa4, 44% ffa6; vs HAL-lite 74% 1v1, 59% ffa4, 43% ffa6. DexBot is the
+strongest bot in the repo. The Apex line's gap is likely the non-aggression pact and the tunnel
+value (expansion toward distant rich land), both absent from Apex.
 
 ## Arena ratings (2026-10-17, replaced multiplayer Elo)
 

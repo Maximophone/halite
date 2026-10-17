@@ -34,7 +34,7 @@ Sources used for the rules:
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"), `hal_lite` (port of a 2016 competitor's bot, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -300,6 +300,32 @@ Mechanisms tried on the solo benchmark (80 maps, Gamma = 930.7 / 2328 at turns 1
 Conclusion: routing sits at a broad optimum; the ~19% is the price of fast delivery. The next
 economy gain needs planning (e.g. a searched opening), not routing tweaks. The variant file
 (apex_delta.rs) was dropped since its defaults equalled ApexGamma.
+
+## Bots of 2016 players (Maxime asked to rebuild top players' bots from their write-ups, 2026-10-17)
+
+Sources found (both on GitHub, code plus write-up):
+- David Ma (GitHub `djma`): https://github.com/djma/halite-bot, Java, bot "HAL-lite", written for
+  Two Sigma's internal summer 2016 contest, submitted unchanged to Halite I: 19th. The README is
+  the write-up (two modes, greedy expansion with a 2-step lookahead, enlisting 255 strength to
+  fights, repulsion map, collision resolution).
+- Declan Groves (GitHub `DexGroves`): https://github.com/DexGroves/halite-bot, Python + numpy +
+  scipy, ranked 7th. Write-up "Halite Bot Breakdown" (dexgroves.github.io/halite/2017/02/15/
+  halite.html, now 404; the Web Archive copy has it, formulas are MathJax in the raw HTML).
+
+Neither Java nor scipy is installed here, so the ports were checked by reading, not by running the
+originals side by side (both originals also use unseeded randomness, so frame-for-frame identity
+is impossible anyway).
+
+`hal_lite.rs`: port of `HAL-lite/MyBot.java` (v15b) with its quirks (BFS visited sets shared
+between siblings, child targets computed from the candidate's strength, the never-filled
+`usedForExpansion`). The Java bot iterates `HashMap<Location, ...>` where order matters and
+`Location.hashCode()` is `x*1000+y`, so `JMap` reproduces Java's iteration order (bucket
+`hash & (cap-1)`, insertion order within a bucket, capacity doubling past 0.75 load and kept by
+`clear()`; treeified buckets are not modelled). Shuffles use a map-seeded generator. Expansion
+budget 800 ms (`HAL_TIME_MS`, Java: 900) never binds: worst turn 10 ms on 50x50 6-player.
+Results (100 games per format, `--seed 5`): vs PredatorBot pool 86% 1v1, 83% ffa4, 68% ffa6
+(ApexGamma on its own seeds: 97.5 / 76 / 71); vs ApexGamma 34% of 1v1s, 32% of ffa4 (2 ApexGammas
++ ImprovedBot). A 19th-place 2016 bot is a real opponent for the Apex line.
 
 ## Ideas not done yet (only if Maxime asks)
 

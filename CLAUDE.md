@@ -30,10 +30,11 @@ Sources used for the rules:
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
 | `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt`. Charts (hand-written SVG, no libraries) from `/api/analytics` every 10 s: rating curves, head-to-head matrix, selected-bot panel. Bot colours follow `order` (first appearance), dark palette validated with the dataviz skill against the `#121720` surface |
+| `tools/combat_report.py` | Splits each player's strength losses in a replay into damage per opponent, neutrals and the cap |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (strongest, see "Apex line"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (strongest, see "ApexBeta"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -226,6 +227,34 @@ which is how they were tuned. What mattered, measured against PredatorBot:
   constants once gathering existed.
 Results (100 games, fresh seeds): 89% of 1v1s vs PredatorBot, 53% of 4-player games vs 2
 PredatorBots + ImprovedBot, 57% of 6-player games vs 2 PredatorBots, 2 ImprovedBots, RandomBot.
+
+## ApexBeta (2026-10-17)
+
+`apex_beta.rs` = the whole ApexAlpha policy as the default move, then a one-turn combat search for
+our pieces within 3 steps of an enemy: an exact simulation of moves, merges, the cap, overkill,
+neutral damage and site ownership, scored as enemy strength destroyed - ours lost + production of
+sites held; coordinate ascent over each front piece's 5 moves. Enemy moves are predicted by running
+our own policy from the enemy's seat (`APEX_PRED=0.6` weight, the rest "enemy stays still").
+`APEX_COMBAT=0` plays exactly as ApexAlpha (checked frame for frame).
+
+Why: `tools/combat_report.py` showed ApexAlpha won on economy and only broke even in fights (it
+lost as much strength as it dealt vs PredatorBot, even in games it won).
+
+Results (200 games per format, seed 3, fresh): vs PredatorBot pool 95% 1v1, 83.5% ffa4, 75% ffa6
+(ApexAlpha: 88 / 61 / 50). vs ApexAlpha 95% 1v1, 56% of ffa4 with 2 ApexAlphas + ImprovedBot.
+Sweeps vs itself: prediction is essential (`APEX_PRED=0`: 8.5%), `APEX_LAMBDA=0.7` much worse,
+other constants flat.
+
+Fairness rule (Maxime): bots must not rely on knowing opponents' code or identity. ApexBeta never
+reads names; it assumes "the enemy plays like me". But its own policy IS ApexAlpha's code, so
+results vs ApexAlpha are inflated (exact model). Judge strength on foreign bots (PredatorBot,
+ImprovedBot) and in self-play. `APEX_DEPTH=2` (predict enemies as policy + search) beats depth 1
+83% but is worse vs foreign bots: level-k exploitation, not strength. Default stays 1.
+
+Prediction accuracy (move vs stay, enemy pieces near us, `APEX_DEBUG=1`): about 0.70 vs
+PredatorBot, 0.67 vs ImprovedBot, 0.80 vs ApexAlpha, 0.62 vs ApexBeta. Next step for ApexGamma:
+learn the enemy model in game (the `observe` scoring already exists; weight scenarios per
+opponent by it), add a greedy-attack scenario, then retune.
 
 ## Ideas not done yet (only if Maxime asks)
 

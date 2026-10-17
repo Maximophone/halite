@@ -53,6 +53,7 @@ struct Params {
     neutral_w: f64,   // strength spent on neutral sites counts this much as a loss
     bias: f64,        // margin needed to leave the default (ApexAlpha) move
     passes: f64,      // coordinate ascent passes
+    depth: f64,       // 1: enemies predicted with the policy; 2: with policy + their own search
 }
 
 fn env(name: &str, default: f64) -> f64 {
@@ -91,6 +92,7 @@ impl Params {
             neutral_w: env("APEX_NEUTRAL_W", 0.3),
             bias: env("APEX_BIAS", 1.0),
             passes: env("APEX_PASSES", 3.0),
+            depth: env("APEX_DEPTH", 1.0),
         }
     }
 }
@@ -138,6 +140,13 @@ struct Bot {
     region: Vec<f64>,
     nb: Vec<[usize; 4]>,
     p: Params,
+    /// What we predicted each enemy piece would do last turn, and the state
+    /// then, to score the prediction once the next frame shows what happened.
+    last_pred: Vec<u8>,
+    last_owner: Vec<i32>,
+    last_strength: Vec<i32>,
+    /// Per player: [enemy pieces near us observed, predicted right, stayed].
+    seen: Vec<[f64; 3]>,
 }
 
 impl Bot {
@@ -633,11 +642,43 @@ impl<'a> Sim<'a> {
 }
 
 impl Bot {
-    fn turn(&self, owner: &[i32], strength: &[i32]) -> Vec<Move> {
-        let mut mv = self.policy(self.me, owner, strength);
-        if self.p.combat > 0.0 {
-            self.combat(owner, strength, &mut mv);
+    /// Scores last turn's prediction: a piece that moved leaves a strength-0
+    /// site of its owner behind; a piece that died tells us nothing.
+    fn observe(&mut self, owner: &[i32], strength: &[i32]) {
+        for i in 0..self.n {
+            let q = self.last_owner[i];
+            if q == 0 || q == self.me || self.last_strength[i] == 0 || self.last_pred[i] == u8::MAX || owner[i] != q {
+                continue;
+            }
+            let moved = strength[i] == 0;
+            if self.seen.len() <= q as usize {
+                self.seen.resize(q as usize + 1, [0.0; 3]);
+            }
+            let st = &mut self.seen[q as usize];
+            st[0] += 1.0;
+            if moved == (self.last_pred[i] != STILL) {
+                st[1] += 1.0;
+            }
+            if !moved {
+                st[2] += 1.0;
+            }
         }
+    }
+
+    fn turn(&mut self, owner: &[i32], strength: &[i32]) -> Vec<Move> {
+        self.observe(owner, strength);
+        let mut pred = vec![u8::MAX; self.n];
+        let mv = self.decide(self.me, owner, strength, self.p.depth as u32, Some(&mut pred));
+        if std::env::var("APEX_DEBUG").is_ok() {
+            for (q, st) in self.seen.iter().enumerate() {
+                if st[0] > 0.0 {
+                    eprintln!("player {} seen {} predicted {:.3} stayed {:.3}", q, st[0], st[1] / st[0], st[2] / st[0]);
+                }
+            }
+        }
+        self.last_pred = pred;
+        self.last_owner = owner.to_vec();
+        self.last_strength = strength.to_vec();
         (0..self.n)
             .filter(|&i| owner[i] == self.me)
             .map(|i| Move { loc: Location { x: (i % self.w) as u16, y: (i / self.w) as u16 }, direction: mv[i] })
@@ -667,8 +708,18 @@ impl Bot {
         dist
     }
 
-    fn combat(&self, owner: &[i32], strength: &[i32], mv: &mut Vec<u8>) {
-        let (n, me, p) = (self.n, self.me, &self.p);
+    /// Player `me`'s moves: the policy, refined by the combat search, whose
+    /// enemy prediction looks one level less deep.
+    fn decide(&self, me: i32, owner: &[i32], strength: &[i32], depth: u32, out: Option<&mut Vec<u8>>) -> Vec<u8> {
+        let mut mv = self.policy(me, owner, strength);
+        if depth > 0 && self.p.combat > 0.0 {
+            self.combat(me, owner, strength, &mut mv, depth, out);
+        }
+        mv
+    }
+
+    fn combat(&self, me: i32, owner: &[i32], strength: &[i32], mv: &mut Vec<u8>, depth: u32, out: Option<&mut Vec<u8>>) {
+        let (n, p) = (self.n, &self.p);
         let zone = p.zone as i32;
         let edist = self.bfs((0..n).filter(|&i| owner[i] != 0 && owner[i] != me));
         let mut pieces: Vec<usize> = (0..n).filter(|&i| owner[i] == me && strength[i] > 0 && edist[i] <= zone).collect();
@@ -688,11 +739,18 @@ impl Bot {
         let mut pred = vec![STILL; n];
         if p.pred > 0.0 {
             for &q in &rivals {
-                let m = self.policy(q, owner, strength);
+                let m = self.decide(q, owner, strength, depth - 1, None);
                 for i in 0..n {
                     if owner[i] == q {
                         pred[i] = m[i];
                     }
+                }
+            }
+        }
+        if let Some(out) = out {
+            for i in 0..n {
+                if owner[i] != 0 && owner[i] != me && mdist[i] <= zone {
+                    out[i] = pred[i];
                 }
             }
         }
@@ -825,7 +883,10 @@ fn main() {
         }
         region[i] = sum / wsum;
     }
-    let bot = Bot { me: my_id as i32, w, n, prod, region, nb, p: Params::load() };
+    let mut bot = Bot {
+        me: my_id as i32, w, n, prod, region, nb, p: Params::load(),
+        last_pred: vec![u8::MAX; n], last_owner: vec![0; n], last_strength: vec![0; n], seen: Vec::new(),
+    };
 
     let mut owner = vec![0i32; n];
     let mut strength = vec![0i32; n];

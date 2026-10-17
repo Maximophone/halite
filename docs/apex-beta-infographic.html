@@ -1,0 +1,470 @@
+<title>How ApexBeta Fights</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Unbounded:wght@500;700;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one dark arena column; each section is a "turn" of explanation, the
+   board demo is the one bold moment. Colours follow the Halite viewer:
+   player 1 yellow is us, player 2 blue is the enemy. Single dark world, by choice. */
+:root {
+  --bg: #0f141c;
+  --panel: #161d28;
+  --line: #263041;
+  --fg: #e6e9ef;
+  --muted: #8a93a3;
+  --us: #f2c14e;
+  --us-soft: rgba(242, 193, 78, 0.16);
+  --them: #4ea8f2;
+  --them-soft: rgba(78, 168, 242, 0.16);
+  --neutral: #3a4354;
+  --good: #5fd38d;
+  --bad: #e8576b;
+  --display: "Unbounded", "Arial Black", system-ui, sans-serif;
+  --body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body {
+  background: var(--bg);
+  color: var(--fg);
+  font: 16px/1.6 var(--body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+}
+.wrap { max-width: 980px; margin: 0 auto; padding-block: 48px 72px; display: grid; gap: 72px; }
+h1, h2, h3 { font-family: var(--display); text-wrap: balance; margin: 0; line-height: 1.15; }
+h1 { font-size: clamp(2.6rem, 8vw, 5.2rem); font-weight: 800; letter-spacing: -0.02em; }
+h2 { font-size: clamp(1.4rem, 3.4vw, 2rem); font-weight: 700; }
+h3 { font-size: 1rem; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font: 500 0.75rem/1 var(--mono); letter-spacing: 0.14em; text-transform: uppercase; color: var(--muted); }
+.sec { display: grid; gap: 22px; }
+.lede { font-size: 1.15rem; color: #c9ced8; }
+.mono { font-family: var(--mono); }
+.us { color: var(--us); }
+.them { color: var(--them); }
+
+/* hero */
+.hero { display: grid; gap: 20px; }
+.hero h1 span { color: var(--us); }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 8px; }
+.stat { border-top: 2px solid var(--us); padding-top: 12px; display: grid; gap: 4px; }
+.stat b { font: 700 clamp(1.8rem, 5vw, 2.6rem)/1 var(--display); font-variant-numeric: tabular-nums; }
+.stat small { color: var(--muted); font-size: 0.85rem; }
+.stat .was { font-family: var(--mono); font-size: 0.8rem; color: var(--muted); }
+
+/* rule cards */
+.rules { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.rule { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.rule svg { width: 100%; height: auto; max-width: 220px; }
+.rule p { font-size: 0.93rem; color: #c9ced8; }
+
+/* trade bars */
+.trade { display: grid; gap: 18px; }
+.trow { display: grid; grid-template-columns: 110px minmax(0, 1fr) 70px; gap: 14px; align-items: center; }
+.trow .name { font: 600 0.95rem var(--display); }
+.bars { display: grid; gap: 6px; }
+.bar { height: 16px; border-radius: 3px; position: relative; }
+.bar.dealt { background: var(--us); }
+.bar.lost { background: var(--bad); opacity: 0.85; }
+.bar span { position: absolute; left: calc(100% + 8px); top: -2px; font: 0.78rem var(--mono); color: var(--muted); white-space: nowrap; }
+.ratio { font: 700 1.4rem var(--display); font-variant-numeric: tabular-nums; text-align: right; }
+.legend { display: flex; gap: 18px; flex-wrap: wrap; font-size: 0.85rem; color: var(--muted); }
+.legend i { display: inline-block; width: 12px; height: 12px; border-radius: 2px; margin-right: 6px; vertical-align: -1px; }
+
+/* pipeline */
+.pipe { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; counter-reset: step; }
+.step { padding: 18px 18px 18px 0; display: grid; gap: 10px; align-content: start; position: relative; min-width: 0; }
+.step + .step { padding-left: 18px; border-left: 1px dashed var(--line); }
+.step .n { font: 700 0.8rem var(--mono); color: var(--bg); background: var(--us); width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; }
+.step p { font-size: 0.92rem; color: #c9ced8; }
+.step .tag { font: 0.75rem var(--mono); color: var(--muted); }
+.formula { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 18px 20px; overflow-x: auto; }
+.formula code { font: 0.95rem/1.9 var(--mono); white-space: nowrap; }
+.formula .plus { color: var(--good); }
+.formula .minus { color: var(--bad); }
+
+/* demo */
+.demo { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 22px; display: grid; gap: 20px; }
+.boards { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 18px; }
+.bwrap { display: grid; gap: 8px; min-width: 0; }
+.bwrap .eyebrow { font-size: 0.68rem; }
+.board { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 3px; }
+.cell { aspect-ratio: 1; max-width: 100%; border-radius: 4px; display: grid; place-items: center; position: relative; font: 500 clamp(0.62rem, 1.6vw, 0.85rem) var(--mono); background: rgba(150, 160, 180, 0.08); color: var(--muted); }
+.cell.o1 { background: var(--us-soft); color: var(--us); box-shadow: inset 0 0 0 1px rgba(242, 193, 78, 0.45); }
+.cell.o2 { background: var(--them-soft); color: var(--them); box-shadow: inset 0 0 0 1px rgba(78, 168, 242, 0.45); }
+.cell.hero-piece { box-shadow: inset 0 0 0 2px var(--us); }
+.cell .arrow { position: absolute; top: 1px; right: 4px; font-size: 0.8em; opacity: 0.9; }
+.cell .pr { position: absolute; bottom: 1px; left: 4px; font-size: 0.62em; opacity: 0.6; }
+.moves { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.moves button { font: 500 0.88rem var(--body); color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 999px; padding: 7px 16px; cursor: pointer; }
+.moves button:hover { border-color: var(--us); }
+.moves button[aria-pressed="true"] { background: var(--us); color: var(--bg); border-color: var(--us); }
+.moves button:focus-visible { outline: 2px solid var(--us); outline-offset: 2px; }
+.tablewrap { overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 8px 12px; border-bottom: 1px solid var(--line); font-size: 0.9rem; white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; }
+th { font: 500 0.72rem var(--mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+td { font-family: var(--mono); }
+tr.sel td { color: var(--us); }
+tr.best td:first-child::after { content: "best"; margin-left: 10px; font-size: 0.7rem; color: var(--bg); background: var(--good); padding: 1px 7px; border-radius: 999px; }
+.note { font-size: 0.88rem; color: var(--muted); }
+.readout { display: flex; flex-wrap: wrap; gap: 8px 24px; font: 0.85rem var(--mono); color: var(--muted); }
+.readout b { color: var(--fg); font-weight: 500; }
+
+/* experiments */
+.exp { display: grid; gap: 10px; }
+.erow { display: grid; grid-template-columns: minmax(0, 220px) minmax(0, 1fr) 56px; gap: 14px; align-items: center; }
+.erow .k { font: 0.85rem var(--mono); color: #c9ced8; overflow-wrap: anywhere; }
+.track { height: 12px; background: rgba(150, 160, 180, 0.1); border-radius: 3px; position: relative; }
+.track .fill { position: absolute; inset: 0 auto 0 0; border-radius: 3px; background: var(--muted); }
+.track .mid { position: absolute; left: 50%; top: -4px; bottom: -4px; width: 1px; background: var(--fg); opacity: 0.4; }
+.erow.base .fill { background: var(--us); }
+.erow.up .fill { background: var(--good); }
+.erow.down .fill { background: var(--bad); }
+.erow .v { font: 500 0.9rem var(--mono); text-align: right; font-variant-numeric: tabular-nums; }
+
+/* closing */
+.two { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.box { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; display: grid; gap: 12px; align-content: start; min-width: 0; }
+.box p { font-size: 0.93rem; color: #c9ced8; }
+.acc { display: grid; gap: 6px; }
+.acc div { display: grid; grid-template-columns: 110px minmax(0, 1fr) 44px; gap: 10px; align-items: center; font-size: 0.85rem; }
+.acc .track .fill { background: var(--them); }
+footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--line); padding-top: 18px; }
+
+@media (max-width: 760px) {
+  .rules, .two { grid-template-columns: minmax(0, 1fr); }
+  .pipe { grid-template-columns: minmax(0, 1fr); }
+  .step, .step + .step { padding: 16px 0; border-left: 0; }
+  .step + .step { border-top: 1px dashed var(--line); }
+  .boards { grid-template-columns: minmax(0, 1fr); max-width: 340px; }
+  .stats { grid-template-columns: minmax(0, 1fr); }
+  .trow { grid-template-columns: 80px minmax(0, 1fr) 54px; }
+  .erow { grid-template-columns: minmax(0, 1fr) 48px; }
+  .erow .track { grid-column: 1 / -1; grid-row: 2; }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .bar, .track .fill { transition: width 0.5s ease; }
+}
+</style>
+
+<div class="wrap">
+
+  <header class="hero">
+    <div class="eyebrow">Halite I · the Apex line · October 2026</div>
+    <h1>Apex<span>Beta</span></h1>
+    <p class="lede">ApexAlpha already expanded faster than anything in the arena, but it only broke even in fights. ApexBeta keeps every expansion decision ApexAlpha makes, then plays out the next turn at the front before it commits a single piece.</p>
+    <div class="stats">
+      <div class="stat"><b>95%</b><small>1v1 wins against PredatorBot</small><span class="was">ApexAlpha 88%</span></div>
+      <div class="stat"><b>83.5%</b><small>4-player wins against 2 PredatorBots and ImprovedBot</small><span class="was">ApexAlpha 61%</span></div>
+      <div class="stat"><b>75%</b><small>6-player wins against a mixed field of 5</small><span class="was">ApexAlpha 50%</span></div>
+    </div>
+  </header>
+
+  <section class="sec">
+    <div class="eyebrow">The board</div>
+    <h2>Three rules decide every fight</h2>
+    <div class="rules">
+      <div class="rule">
+        <svg viewBox="0 0 150 90" role="img" aria-label="A still piece grows by its site's production">
+          <rect x="10" y="20" width="50" height="50" rx="6" fill="rgba(242,193,78,0.16)" stroke="#f2c14e"/>
+          <text x="35" y="51" text-anchor="middle" fill="#f2c14e" font-family="IBM Plex Mono, monospace" font-size="16">40</text>
+          <text x="75" y="51" text-anchor="middle" fill="#8a93a3" font-family="IBM Plex Mono, monospace" font-size="12">+4</text>
+          <rect x="90" y="20" width="50" height="50" rx="6" fill="rgba(242,193,78,0.16)" stroke="#f2c14e"/>
+          <text x="115" y="51" text-anchor="middle" fill="#f2c14e" font-family="IBM Plex Mono, monospace" font-size="16">44</text>
+        </svg>
+        <h3>Standing still is income</h3>
+        <p>A piece that stays gains its site's production. A piece that moves gains nothing that turn, and strength above 255 on one site is lost.</p>
+      </div>
+      <div class="rule">
+        <svg viewBox="0 0 150 90" role="img" aria-label="One piece damages every enemy next to it">
+          <rect x="55" y="25" width="40" height="40" rx="5" fill="rgba(242,193,78,0.25)" stroke="#f2c14e" stroke-width="2"/>
+          <text x="75" y="50" text-anchor="middle" fill="#f2c14e" font-family="IBM Plex Mono, monospace" font-size="13">100</text>
+          <rect x="55" y="-17" width="40" height="40" rx="5" fill="rgba(78,168,242,0.16)" stroke="#4ea8f2" transform="translate(0 0)"/>
+          <rect x="99" y="25" width="40" height="40" rx="5" fill="rgba(78,168,242,0.16)" stroke="#4ea8f2"/>
+          <rect x="11" y="25" width="40" height="40" rx="5" fill="rgba(78,168,242,0.16)" stroke="#4ea8f2"/>
+          <text x="31" y="50" text-anchor="middle" fill="#4ea8f2" font-family="IBM Plex Mono, monospace" font-size="13">50</text>
+          <text x="119" y="50" text-anchor="middle" fill="#4ea8f2" font-family="IBM Plex Mono, monospace" font-size="13">60</text>
+          <text x="75" y="12" text-anchor="middle" fill="#4ea8f2" font-family="IBM Plex Mono, monospace" font-size="13">50</text>
+          <rect x="55" y="69" width="40" height="20" rx="4" fill="rgba(150,160,180,0.08)"/>
+        </svg>
+        <h3>Overkill</h3>
+        <p>Every piece deals its full strength to each enemy on its site and the four next to it, all at once. A 100 between three enemies deals up to 300.</p>
+      </div>
+      <div class="rule">
+        <svg viewBox="0 0 150 90" role="img" aria-label="A strip of empty neutral sites between two players">
+          <g font-family="IBM Plex Mono, monospace" font-size="11" text-anchor="middle">
+            <rect x="8" y="10" width="30" height="70" rx="4" fill="rgba(242,193,78,0.16)" stroke="#f2c14e"/>
+            <rect x="44" y="10" width="30" height="70" rx="4" fill="rgba(150,160,180,0.08)" stroke="#3a4354" stroke-dasharray="3 3"/>
+            <rect x="80" y="10" width="30" height="70" rx="4" fill="rgba(150,160,180,0.08)" stroke="#3a4354" stroke-dasharray="3 3"/>
+            <rect x="116" y="10" width="30" height="70" rx="4" fill="rgba(78,168,242,0.16)" stroke="#4ea8f2"/>
+            <text x="59" y="49" fill="#8a93a3">0</text>
+            <text x="95" y="49" fill="#8a93a3">0</text>
+          </g>
+        </svg>
+        <h3>The front is no-man's land</h3>
+        <p>A killed piece leaves an empty neutral site. In a 4-player replay, none of 15,065 ownership changes went straight from one player to another. Fights happen in the gap.</p>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">The diagnosis</div>
+    <h2>ApexAlpha won on economy and gave strength back in fights</h2>
+    <p>A new tool, <span class="mono">tools/combat_report.py</span>, replays every turn and splits each player's losses by who caused them. Over the same 40 1v1 games against PredatorBot, here is what each Apex bot dealt and lost in its wins.</p>
+    <div class="trade">
+      <div class="trow">
+        <div class="name">ApexAlpha</div>
+        <div class="bars">
+          <div class="bar dealt" style="width: 70%"><span>41,443 dealt</span></div>
+          <div class="bar lost" style="width: 80%"><span>47,436 lost</span></div>
+        </div>
+        <div class="ratio" style="color: var(--bad)">0.87</div>
+      </div>
+      <div class="trow">
+        <div class="name">ApexBeta</div>
+        <div class="bars">
+          <div class="bar dealt" style="width: 54%"><span>32,000 dealt</span></div>
+          <div class="bar lost" style="width: 47.4%"><span>28,105 lost</span></div>
+        </div>
+        <div class="ratio" style="color: var(--good)">1.14</div>
+      </div>
+      <div class="legend"><span><i style="background: var(--us)"></i>Strength destroyed in enemy pieces, average per game</span><span><i style="background: var(--bad)"></i>Strength lost to enemy pieces</span><span>Right: dealt per point lost</span></div>
+    </div>
+    <p class="note">ApexAlpha won 37 of these 40 games and ApexBeta won all 40. ApexBeta also fights less in total: it destroys less enemy strength per game, but loses far less of its own.</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">One turn inside ApexBeta</div>
+    <h2>Propose, find the front, predict, search</h2>
+    <div class="pipe">
+      <div class="step">
+        <div class="n">1</div>
+        <h3>Propose</h3>
+        <p>Run the full ApexAlpha policy: gathering plans, the value field that routes strength to the border, walls left standing, defence near enemies.</p>
+        <span class="tag">every piece gets a default move</span>
+      </div>
+      <div class="step">
+        <div class="n">2</div>
+        <h3>Find the front</h3>
+        <p>Pick our pieces within 3 steps of an enemy. Two pieces can only touch after this turn if they start at most 3 steps apart.</p>
+        <span class="tag">APEX_ZONE = 3</span>
+      </div>
+      <div class="step">
+        <div class="n">3</div>
+        <h3>Predict</h3>
+        <p>Run the same policy from each nearby enemy's seat: assume the enemy plays like us. Blend it with a second guess, that every enemy stays put.</p>
+        <span class="tag">60% "plays like us" · 40% "stays"</span>
+      </div>
+      <div class="step">
+        <div class="n">4</div>
+        <h3>Search</h3>
+        <p>Strongest piece first, try all five moves against everyone else's current move, simulate the turn exactly, keep the best. Repeat up to 3 passes.</p>
+        <span class="tag">leaving the default costs a margin of 1</span>
+      </div>
+    </div>
+    <div class="formula">
+      <div class="eyebrow" style="margin-bottom: 8px">The score of a move set, per scenario</div>
+      <code><span class="plus">+ enemy strength destroyed</span> <span class="minus">− our strength lost</span> <span class="minus">− 0.3 × strength spent on neutral sites</span> <span class="minus">− strength past the 255 cap</span><br><span class="plus">+ 2 × (production + 0.5) for each site we hold</span> <span class="minus">− the same for each site the enemy holds</span></code>
+    </div>
+    <p>The simulation follows the engine's rules exactly: moves, merges, the cap, overkill, neutral damage and who owns each site afterwards. Only the sites next to a changed piece are rescored, so a full search costs a few milliseconds even on a 50 by 50 map.</p>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">Try it</div>
+    <h2>Our 100 faces the gap</h2>
+    <p>Choose a move for the outlined <span class="us">yellow 100</span>. The prediction says the <span class="them">blue 60</span> steps into the gap and the <span class="them">200</span> follows behind it. The table scores all five moves the way ApexBeta does. Small numbers in the corners are production; the board's edges are walls here, unlike the real wrapping map.</p>
+    <div class="demo">
+      <div class="moves" role="group" aria-label="Move for our 100 piece">
+        <button type="button" id="mv0" data-d="0">Stay</button>
+        <button type="button" id="mv1" data-d="1">North</button>
+        <button type="button" id="mv2" data-d="2">East, into the gap</button>
+        <button type="button" id="mv3" data-d="3">South</button>
+        <button type="button" id="mv4" data-d="4">West</button>
+      </div>
+      <div class="boards">
+        <div class="bwrap"><div class="eyebrow">Now</div><div class="board" id="b-now"></div></div>
+        <div class="bwrap"><div class="eyebrow">Next turn, if the enemy stays</div><div class="board" id="b-stay"></div><div class="readout" id="r-stay"></div></div>
+        <div class="bwrap"><div class="eyebrow">Next turn, if it plays like us</div><div class="board" id="b-pred"></div><div class="readout" id="r-pred"></div></div>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr><th>Move</th><th>Enemy stays</th><th>Plays like us</th><th>Blend 40 / 60</th></tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+      </div>
+      <p class="note">Charging the gap wins under both guesses. The 100 dies, but overkill lands its full strength on three enemy pieces at once. Moving north or south breaks a neutral wall next to an enemy and loses the piece for nothing.</p>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="eyebrow">What the experiments said</div>
+    <h2>Prediction carries the whole idea</h2>
+    <p>Each line is a 200-game 1v1 match of ApexBeta with one setting changed, against the released ApexBeta. Half means no difference.</p>
+    <div class="exp" id="exp"></div>
+    <p class="note">Most other settings were flat. The one surprise is depth 2, where enemies are predicted with the policy plus their own search. It beats the released bot 83% of the time because it models that bot exactly, but it does worse against PredatorBot. That is exploitation of a known opponent, so the release stays at depth 1.</p>
+  </section>
+
+  <section class="sec">
+    <div class="two">
+      <div class="box">
+        <div class="eyebrow">Fair play</div>
+        <h3>It never knows who it is playing</h3>
+        <p>ApexBeta never reads opponents' names or code. Its only model of an enemy is its own policy. That policy is ApexAlpha's code, so wins against ApexAlpha are inflated, and the honest yardstick is PredatorBot and ImprovedBot.</p>
+      </div>
+      <div class="box">
+        <div class="eyebrow">Next: ApexGamma</div>
+        <h3>Learn the enemy during the game</h3>
+        <p>Each turn ApexBeta checks whether enemy pieces near it moved or stayed as predicted. The next step is to weight its guesses per opponent by that record.</p>
+        <div class="acc" id="acc"></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>Measured on the Rust engine with fixed seeds, 200 games per format unless stated. Source: <span class="mono">starter-kit/rust/src/bin/apex_beta.rs</span>. Every constant reads an APEX_* environment variable.</footer>
+</div>
+
+<script>
+(function () {
+  // Halite I step on a small non-wrapping board, following the engine's rules.
+  function sim(W, H, cells, moves) {
+    var n = W * H;
+    function nb(i, d) {
+      var x = i % W, y = (i / W) | 0;
+      if (d === 1) return y > 0 ? i - W : -1;
+      if (d === 2) return x < W - 1 ? i + 1 : -1;
+      if (d === 3) return y < H - 1 ? i + W : -1;
+      if (d === 4) return x > 0 ? i - 1 : -1;
+      return i;
+    }
+    var pcs = [null, new Map(), new Map()], cap = [0, 0, 0];
+    for (var i = 0; i < n; i++) {
+      var c = cells[i]; if (!c.o) continue;
+      var d = moves[i] || 0, s, t;
+      if (d === 0) { s = c.s + c.p; t = i; }
+      else { s = c.s; t = nb(i, d); if (t < 0) { s = c.s + c.p; t = i; } else if (!pcs[c.o].has(i)) pcs[c.o].set(i, 0); }
+      var v = (pcs[c.o].get(t) || 0) + s;
+      if (v > 255) { cap[c.o] += v - 255; v = 255; }
+      pcs[c.o].set(t, v);
+    }
+    var dmg = [null, new Map(), new Map()], lost = [0, 0, 0], neutral = [0, 0, 0];
+    [1, 2].forEach(function (p) {
+      pcs[p].forEach(function (s, i) {
+        if (s > 0) {
+          var q = 3 - p;
+          [0, 1, 2, 3, 4].forEach(function (d) { var t = nb(i, d); if (t >= 0 && pcs[q].has(t)) dmg[q].set(t, (dmg[q].get(t) || 0) + s); });
+        }
+        if (cells[i].o === 0 && cells[i].s > 0) dmg[p].set(i, (dmg[p].get(i) || 0) + cells[i].s);
+      });
+    });
+    var out = cells.map(function (c) { return { o: 0, s: c.o === 0 ? c.s : 0, p: c.p }; });
+    for (var k = 0; k < n; k++) if (cells[k].o === 0) {
+      var a = 0; [1, 2].forEach(function (p) { if (pcs[p].has(k)) a += pcs[p].get(k); });
+      if (a) out[k].s = Math.max(0, cells[k].s - a);
+    }
+    var surv = new Map();
+    [1, 2].forEach(function (p) {
+      pcs[p].forEach(function (s, i) {
+        var d = dmg[p].get(i) || 0, ns = cells[i].o === 0 ? cells[i].s : 0, fe = Math.max(0, d - ns);
+        lost[p] += Math.min(s, fe);
+        neutral[p] += Math.min(Math.max(0, s - fe), ns);
+        if (s - d > 0 || (s === 0 && d === 0)) { if (!surv.has(i)) surv.set(i, []); surv.get(i).push([p, Math.max(0, s - d)]); }
+      });
+    });
+    surv.forEach(function (l, i) { if (l.length === 1) { out[i].o = l[0][0]; out[i].s = l[0][1]; } else { out[i].o = 0; out[i].s = 0; } });
+    return { out: out, lost: lost, neutral: neutral, cap: cap };
+  }
+  function score(r) {
+    var held = 0;
+    r.out.forEach(function (c) { var v = 2 * (c.p + 0.5); if (c.o === 1) held += v; if (c.o === 2) held -= v; });
+    return r.lost[2] - r.lost[1] - 0.3 * r.neutral[1] - r.cap[1] + held;
+  }
+
+  var W = 5, H = 3;
+  function B(o, s, p) { return { o: o, s: s, p: p }; }
+  var L = [
+    B(1, 20, 2), B(0, 80, 3), B(2, 50, 2), B(2, 20, 2), B(2, 20, 2),
+    B(1, 20, 2), B(1, 100, 4), B(0, 0, 3), B(2, 60, 3), B(2, 200, 4),
+    B(1, 20, 2), B(0, 80, 3), B(2, 50, 2), B(2, 20, 2), B(2, 20, 2)
+  ];
+  var A = 6, PRED = { 8: 4, 9: 4 };
+  var ARROW = ["", "↑", "→", "↓", "←"];
+  var NAMES = ["Stay", "North", "East, into the gap", "South", "West"];
+
+  function draw(el, cells, moves, hero) {
+    el.innerHTML = "";
+    cells.forEach(function (c, i) {
+      var d = document.createElement("div");
+      d.className = "cell" + (c.o ? " o" + c.o : "") + (i === hero ? " hero-piece" : "");
+      d.textContent = c.s;
+      if (moves && moves[i]) { var a = document.createElement("span"); a.className = "arrow"; a.textContent = ARROW[moves[i]]; d.appendChild(a); }
+      var p = document.createElement("span"); p.className = "pr"; p.textContent = c.p; d.appendChild(p);
+      el.appendChild(d);
+    });
+  }
+  function readout(el, r) {
+    el.innerHTML = "<span>we lose <b>" + r.lost[1] + "</b></span><span>enemy loses <b>" + r.lost[2] + "</b></span><span>score <b>" + score(r).toFixed(1) + "</b></span>";
+  }
+
+  var rows = [0, 1, 2, 3, 4].map(function (d) {
+    var m0 = {}; m0[A] = d;
+    var m1 = Object.assign({}, PRED); m1[A] = d;
+    var a = score(sim(W, H, L, m0)), b = score(sim(W, H, L, m1));
+    return { d: d, a: a, b: b, mix: 0.4 * a + 0.6 * b };
+  });
+  var bestD = rows.reduce(function (x, y) { return y.mix > x.mix ? y : x; }).d;
+
+  function select(d) {
+    var m0 = {}; m0[A] = d;
+    var m1 = Object.assign({}, PRED); m1[A] = d;
+    var r0 = sim(W, H, L, m0), r1 = sim(W, H, L, m1);
+    draw(document.getElementById("b-now"), L, m1, A);
+    draw(document.getElementById("b-stay"), r0.out, null, -1);
+    draw(document.getElementById("b-pred"), r1.out, null, -1);
+    readout(document.getElementById("r-stay"), r0);
+    readout(document.getElementById("r-pred"), r1);
+    document.querySelectorAll(".moves button").forEach(function (b) { b.setAttribute("aria-pressed", String(+b.dataset.d === d)); });
+    var tb = document.getElementById("tbody"); tb.innerHTML = "";
+    rows.forEach(function (r) {
+      var tr = document.createElement("tr");
+      tr.className = (r.d === d ? "sel" : "") + (r.d === bestD ? " best" : "");
+      tr.innerHTML = "<td>" + NAMES[r.d] + "</td><td>" + r.a.toFixed(1) + "</td><td>" + r.b.toFixed(1) + "</td><td>" + r.mix.toFixed(1) + "</td>";
+      tb.appendChild(tr);
+    });
+  }
+  document.querySelectorAll(".moves button").forEach(function (b) { b.addEventListener("click", function () { select(+b.dataset.d); }); });
+  select(0);
+
+  var EXP = [
+    ["Released ApexBeta", 50.5, "base"],
+    ["Prediction weight 0.3", 54.0, ""],
+    ["No margin to leave the default", 55.5, ""],
+    ["Site value 5 instead of 2", 47.0, ""],
+    ["Site value 0.5", 38.0, "down"],
+    ["Enemy losses count 1.4", 41.0, "down"],
+    ["Enemy losses count 0.7", 15.0, "down"],
+    ["No prediction, only \"stays\"", 8.5, "down"],
+    ["ApexAlpha (no search)", 4.5, "down"]
+  ];
+  var ex = document.getElementById("exp");
+  EXP.forEach(function (e) {
+    var row = document.createElement("div");
+    row.className = "erow " + e[2];
+    row.innerHTML = '<div class="k">' + e[0] + '</div><div class="track"><div class="fill" style="width:' + e[1] + '%"></div><div class="mid"></div></div><div class="v">' + e[1].toFixed(1) + "%</div>";
+    ex.appendChild(row);
+  });
+
+  var ACC = [["PredatorBot", 0.70], ["ImprovedBot", 0.67], ["ApexAlpha", 0.80], ["ApexBeta", 0.62]];
+  var acc = document.getElementById("acc");
+  var head = document.createElement("div"); head.className = "eyebrow"; head.style.display = "block"; head.textContent = "Moves predicted right, near our pieces"; acc.appendChild(head);
+  ACC.forEach(function (a) {
+    var row = document.createElement("div");
+    row.innerHTML = "<span>" + a[0] + '</span><div class="track"><div class="fill" style="width:' + a[1] * 100 + '%"></div></div><span class="mono">' + Math.round(a[1] * 100) + "%</span>";
+    acc.appendChild(row);
+  });
+})();
+</script>

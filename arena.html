@@ -45,6 +45,8 @@
   #board tbody tr:hover, #games tbody tr:hover { background: #171d28; }
   #board tbody tr.sel { background: #1b2230; }
   .rank1 { color: var(--accent); font-weight: 600; }
+  tr.retired td { color: var(--muted); }
+  .tag { font-size: 11px; border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; margin-left: 6px; }
   .players { display: flex; gap: 6px; flex-wrap: wrap; white-space: normal; }
   .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
   .chip.win { border-color: var(--accent); color: var(--accent); }
@@ -204,9 +206,9 @@
     // Leaderboard
     $("boardEmpty").style.display = st.leaderboard.length ? "none" : "";
     $("board").querySelector("tbody").innerHTML = st.leaderboard.map((r, i) => `
-      <tr data-bot="${esc(r.bot)}" class="${r.bot === filter ? "sel" : ""}">
-        <td class="${i === 0 ? "rank1" : ""}">${i + 1}</td>
-        <td class="${i === 0 ? "rank1" : ""}">${esc(r.bot)}</td>
+      <tr data-bot="${esc(r.bot)}" class="${r.bot === filter ? "sel" : ""}${r.active === false ? " retired" : ""}">
+        <td class="${i === 0 ? "rank1" : ""}">${r.active === false ? "" : i + 1}</td>
+        <td class="${i === 0 ? "rank1" : ""}">${esc(r.bot)}${r.active === false ? ' <span class="tag">retired</span>' : ""}</td>
         <td class="num">${r.rating}</td>
         <td class="num">${r.games}</td>
         <td class="num">${r.wins}</td>

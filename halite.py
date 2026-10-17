@@ -8,8 +8,8 @@ using the original Halite I text protocol, so bots written for the original
 starter kits should run unchanged.
 
 Usage:
-    python3 halite.py "python3 MyBot.py" "python3 ImprovedBot.py"
-    python3 halite.py -d "40 40" -s 42 "python3 MyBot.py" "python3 RandomBot.py"
+    python3 halite.py starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/improved_bot
+    python3 halite.py -d "40 40" -s 42 ./my_bot "python3 some_2016_bot.py"
 
 Run `python3 halite.py -h` for all options.
 """
@@ -568,7 +568,7 @@ def write_replay_html(replay, path):
 
 def main():
     ap = argparse.ArgumentParser(description="Halite I clone game environment")
-    ap.add_argument("bots", nargs="+", help='bot commands, e.g. "python3 MyBot.py"')
+    ap.add_argument("bots", nargs="+", help='bot commands, e.g. "./starter-kit/rust/target/release/my_bot"')
     ap.add_argument("-d", "--dimensions", help='map size as "WIDTH HEIGHT" (default: random 20 to 50)')
     ap.add_argument("-s", "--seed", type=int, help="map seed")
     ap.add_argument("-t", "--no-timeout", action="store_true", help="disable timeouts (for debugging)")

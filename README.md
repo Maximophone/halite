@@ -4,17 +4,22 @@ A local re-creation of **Halite**, the first season (2016 to 2017) of the AI pro
 competition run by Two Sigma and Cornell Tech. Write a bot, pit it against others, and
 watch the replay.
 
-Only Python 3 is needed (no packages to install). An optional Rust engine plays the same
-games about 5 times faster (see [The Rust engine](#the-rust-engine)).
+You need Python 3 (standard library only) for the tools and Rust for the bots. The bots and an
+optional Rust engine use no external crates. Install Rust with [rustup](https://rustup.rs) if
+needed: `curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`.
 
 ## Quick start
 
 ```bash
+# Build the bots (and the faster engine, optional)
+(cd starter-kit/rust && cargo build --release)
+(cd engine && cargo build --release)
+
 # Your bot vs the sample bot, random map size
-python3 halite.py "python3 starter-kit/python/MyBot.py" "python3 starter-kit/python/ImprovedBot.py"
+python3 halite.py starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/improved_bot
 
 # Fixed size and seed, up to 6 players
-python3 halite.py -d "30 30" -s 42 "python3 starter-kit/python/MyBot.py" "python3 starter-kit/python/RandomBot.py"
+python3 halite.py -d "30 30" -s 42 starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/random_bot
 ```
 
 Each game writes to `replays/`:
@@ -25,7 +30,12 @@ Each game writes to `replays/`:
 Whatever your bot writes to stderr is saved in `logs/bot-N.log`. Never print to stdout:
 that is the channel to the game.
 
-To generate a sample game to look at: `python3 halite.py -d "40 40" -s 2016 -o examples "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py" "python3 starter-kit/python/MyBot.py"`
+To generate a sample game to look at (from the repo root, after building):
+
+```bash
+B=starter-kit/rust/target/release
+python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot $B/improved_bot $B/random_bot
+```
 
 ## Files
 
@@ -38,8 +48,7 @@ To generate a sample game to look at: `python3 halite.py -d "40 40" -s 2016 -o e
 | `test_rules.py` | Checks for the combat, movement and production rules |
 | `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
-| `starter-kit/python/` | `hlt.py` and `networking.py` (original API), `MyBot.py`, `RandomBot.py`, `ImprovedBot.py`, `PredatorBot.py` |
-| `starter-kit/rust/` | Rust starter kit (no external crates): `hlt` module, `my_bot` (random template), `predator_bot` (port of PredatorBot) |
+| `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot` |
 
 ## Options
 
@@ -55,8 +64,9 @@ python3 halite.py [-d "W H"] [-s SEED] [-t] [-q] [-o DIR] [--no-replay] [--no-ht
 `engine/target/release/halite` takes exactly the same options.
 
 ```bash
-python3 tournament.py -n 20 "python3 starter-kit/python/MyBot.py" "python3 starter-kit/python/ImprovedBot.py"
-python3 tournament.py -n 20 --players 4 "python3 a.py" "python3 b.py" "python3 c.py" "python3 d.py" "python3 e.py"
+B=starter-kit/rust/target/release
+python3 tournament.py -n 20 $B/my_bot $B/improved_bot
+python3 tournament.py -n 20 --players 4 $B/my_bot $B/random_bot $B/improved_bot $B/predator_bot ./other_bot
 ```
 
 `tournament.py` and `arena.py` use the Rust engine when it is built and fall back to
@@ -69,18 +79,20 @@ python3 arena.py
 ```
 
 Then open http://localhost:8000. The arena plays games forever, several at once (half your CPU
-cores by default, `--workers N` to change), between every `starter-kit/python/*Bot.py`. A new bot
-file dropped in that folder joins on the next game. The page shows an Elo-style leaderboard, the
+cores by default, `--workers N` to change), between every bot in `starter-kit/rust/src/bin/`
+that has been built: `improved_bot.rs` plays as ImprovedBot. A new bot joins on the next game once
+`cargo build --release` has built it; a bot whose file is removed stays on the leaderboard as
+"retired". The page shows an Elo-style leaderboard, the
 games in progress and every finished game; click a bot to filter, click Watch to open a replay.
 Charts: every bot's rating over time, a head-to-head matrix (how often each bot finishes ahead of
 each other bot), and for a selected bot its toughest opponents, recent form (click a square to
 watch that game) and win rate by number of players and by map size.
 Games mix 2, 3, 4 and 6 players on random maps.
 
-Bots in other languages: anything that speaks the protocol works.
+Bots outside the starter kit, in any language: anything that speaks the protocol works.
 
 ```bash
-python3 arena.py --bot "RustPredator=./starter-kit/rust/target/release/predator_bot" --bot "CBot=./bots/c/cbot"
+python3 arena.py --bot "CBot=./bots/c/cbot" --bot "OldBot=python3 my_2016_bot.py"
 ```
 
 Everything is stored in `arena/`: `games.jsonl` holds the latest 10,000 games (`--history N`),
@@ -131,46 +143,13 @@ A bot that crashes or times out is ejected and its sites become neutral.
 
 ## Writing a bot
 
-The Python starter kit keeps the original API:
-
-```python
-from hlt import *
-from networking import *
-
-myID, gameMap = getInit()
-sendInit("MyPythonBot")
-
-while True:
-    gameMap = getFrame()
-    moves = []
-    for y in range(gameMap.height):
-        for x in range(gameMap.width):
-            loc = Location(x, y)
-            site = gameMap.getSite(loc)        # .owner .strength .production
-            if site.owner == myID:
-                moves.append(Move(loc, STILL))
-    sendFrame(moves)
-```
-
-Helpers on `gameMap`: `getSite(loc, direction)`, `getLocation(loc, direction)`,
-`getDistance(a, b)` (wrap-aware), `getAngle(a, b)`.
-
-`ImprovedBot.py` is a good first target: it captures the best-value neighbouring site,
-waits until it has 5x its production in strength, and sends interior pieces to the border.
-Classic next steps from the original competition: route interior strength toward the
-weakest point of the border, avoid merging past 255, and use overkill when fighting
-(move into the empty gap between you and an enemy so your piece hits all their pieces at once).
-
-## Writing a bot in Rust
-
-`starter-kit/rust/` is a cargo project with no external crates. Install Rust with
-[rustup](https://rustup.rs) (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`), then:
+`starter-kit/rust/` is a cargo project with no external crates:
 
 ```bash
 cd starter-kit/rust
 cargo build --release
 cd ../..
-python3 halite.py "./starter-kit/rust/target/release/my_bot" "python3 starter-kit/python/ImprovedBot.py"
+python3 halite.py starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/improved_bot
 ```
 
 Edit `src/bin/my_bot.rs` (it starts as a random bot). To add another bot, drop a file in
@@ -205,10 +184,16 @@ Helpers on `GameMap`: `get_site(loc, dir)`, `get_location(loc, dir)`, `get_dista
 stdout (it is the game channel); use `eprintln!`, which goes to `logs/bot-N.log`. The bot exits
 cleanly when the environment closes stdin.
 
-`predator_bot` is a move-for-move port of `PredatorBot.py`: on the same map both versions
-produce identical replays. It reports its name as `RustPredatorBot`. A 50x50 4-player game takes
-about 1.8 s with four Rust PredatorBots against about 4 s with four Python ones (same game, same
-moves); with Rust bots most of the remaining time is the Python engine, hence the Rust engine below.
+`improved_bot` is a good first target: it captures the best-value neighbouring site,
+waits until it has 5x its production in strength, and sends interior pieces to the border.
+Classic next steps from the original competition: route interior strength toward the
+weakest point of the border, avoid merging past 255, and use overkill when fighting
+(move into the empty gap between you and an enemy so your piece hits all their pieces at once).
+`predator_bot` does several of these.
+
+The bots were first written in Python; `improved_bot` and `predator_bot` are move-for-move ports
+(identical replays on the same maps), and Rust versions run a game about 2.2x faster, so the
+Python kit was retired. It is still in git history.
 
 ## The Rust engine
 
@@ -220,7 +205,7 @@ stays the reference.
 
 ```bash
 cd engine && cargo build --release && cd ..
-engine/target/release/halite -d "30 30" -s 42 "python3 starter-kit/python/MyBot.py" "./starter-kit/rust/target/release/predator_bot"
+engine/target/release/halite -d "30 30" -s 42 starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/predator_bot
 python3 check_engine.py          # prove it matches halite.py (about 2 minutes; --quick for less)
 ```
 

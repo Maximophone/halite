@@ -6,12 +6,14 @@ Plays games forever between every bot it knows, several games in parallel,
 keeps Elo-style ratings, and serves a leaderboard plus a browsable list of
 every game at http://localhost:8000 (each game opens in the replay viewer).
 
-Bots: every starter-kit/python/*Bot.py is picked up automatically, including
-files added while the arena runs. Add other bots with --bot NAME=COMMAND.
+Bots: every Rust bot in starter-kit/rust/src/bin/ that has been built
+(cargo build --release) is picked up automatically, including bots built while
+the arena runs; improved_bot.rs plays as "ImprovedBot". Add other bots, in any
+language, with --bot NAME=COMMAND.
 
 Usage:
     python3 arena.py
-    python3 arena.py --workers 8 --port 8000 --bot "RustBot=./target/release/mybot"
+    python3 arena.py --workers 8 --port 8000 --bot "CBot=./bots/c/cbot"
 
 Data lives in arena/: games.jsonl (the latest --history games), state.json
 (ratings and totals for everything older) and replays/. Ratings are rebuilt
@@ -34,7 +36,25 @@ import urllib.parse
 from halite import play_game, resolve_engine
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-BOT_GLOB = os.path.join(HERE, "starter-kit", "python", "*Bot.py")
+RUST_KIT = os.path.join(HERE, "starter-kit", "rust")
+
+
+def bot_name(stem):
+    """improved_bot -> ImprovedBot"""
+    return "".join(part.capitalize() for part in stem.split("_"))
+
+
+def rust_bots():
+    """{name: binary} for every built bot, and the sources not built yet."""
+    built, unbuilt = {}, []
+    for src in sorted(glob.glob(os.path.join(RUST_KIT, "src", "bin", "*.rs"))):
+        stem = os.path.splitext(os.path.basename(src))[0]
+        binary = os.path.join(RUST_KIT, "target", "release", stem)
+        if os.access(binary, os.X_OK):
+            built[bot_name(stem)] = shlex.quote(binary)
+        else:
+            unbuilt.append(stem)
+    return built, unbuilt
 
 START_RATING = 1500.0
 K_FACTOR = 32.0
@@ -133,9 +153,8 @@ class Arena:
     def bots(self):
         found = dict(self.extra_bots)
         if self.discover:
-            for path in sorted(glob.glob(BOT_GLOB)):
-                name = os.path.splitext(os.path.basename(path))[0]
-                found.setdefault(name, "%s %s" % (shlex.quote(sys.executable), shlex.quote(path)))
+            for name, cmd in rust_bots()[0].items():
+                found.setdefault(name, cmd)
         return found
 
     def _load(self):
@@ -308,11 +327,13 @@ class Arena:
     def state(self, limit, bot_filter):
         with self.lock:
             board = []
+            active = self.bots()
             for bot, s in self.stats.items():
                 board.append({"bot": bot, "rating": round(self.ratings[bot]), "games": s["games"],
-                              "wins": s["wins"], "errors": s["errors"],
+                              "wins": s["wins"], "errors": s["errors"], "active": bot in active,
                               "score": round(s["score"] / s["games"], 3) if s["games"] else 0})
-            board.sort(key=lambda r: -r["rating"])
+            # Bots still playing first; retired ones keep their final rating below.
+            board.sort(key=lambda r: (not r["active"], -r["rating"]))
             games = self.games
             if bot_filter:
                 games = [g for g in games if any(p["bot"] == bot_filter for p in g["players"])]
@@ -399,7 +420,7 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2),
                     help="games played in parallel (default: half the CPU cores)")
     ap.add_argument("--bot", action="append", default=[], metavar="NAME=COMMAND",
-                    help="add a bot that is not in starter-kit/python (repeatable)")
+                    help="add a bot that is not in starter-kit/rust (repeatable)")
     ap.add_argument("--no-discover", action="store_true", help="only use --bot entries")
     ap.add_argument("--keep", type=int, default=200, help="replays kept on disk (older ones are deleted)")
     ap.add_argument("--history", type=int, default=10000,
@@ -422,6 +443,10 @@ def main():
     except RuntimeError as err:
         ap.error(str(err))
     arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history, engine)
+    unbuilt = rust_bots()[1] if not args.no_discover else []
+    if unbuilt:
+        print("Not built, so not playing: %s (run `cargo build --release` in starter-kit/rust)"
+              % ", ".join(unbuilt), flush=True)
     if len(arena.bots()) < 2:
         print("Need at least 2 bots, found: %s" % (", ".join(arena.bots()) or "none"))
         sys.exit(1)

@@ -2,7 +2,7 @@
 //! games (same maps from a seed, same rules, same replays, same console
 //! output). halite.py stays the reference; check_engine.py proves they agree.
 //!
-//!     engine/target/release/halite -d "30 30" -s 7 "python3 MyBot.py" "./my_bot"
+//!     engine/target/release/halite -d "30 30" -s 7 starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/improved_bot
 
 mod bot;
 mod game;
@@ -623,7 +623,7 @@ const HELP: &str = "
 Halite I clone game environment (Rust engine)
 
 positional arguments:
-  bots                  bot commands, e.g. \"python3 MyBot.py\"
+  bots                  bot commands, e.g. \"./starter-kit/rust/target/release/my_bot\"
 
 options:
   -h, --help            show this help message and exit

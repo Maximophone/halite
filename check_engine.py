@@ -41,9 +41,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 RUST_ENGINE = os.path.join(HERE, "engine", "target", "release", "halite")
 PY_ENGINE = [sys.executable, os.path.join(HERE, "halite.py")]
 
-PY_PREDATOR = "%s starter-kit/python/PredatorBot.py" % sys.executable
-PY_IMPROVED = "%s starter-kit/python/ImprovedBot.py" % sys.executable
 RUST_PREDATOR = "starter-kit/rust/target/release/predator_bot"
+RUST_IMPROVED = "starter-kit/rust/target/release/improved_bot"
 
 
 # ---------------------------------------------------------------------------
@@ -260,7 +259,7 @@ def describe_replay_diff(a, b):
 
 def game_cases(quick):
     rng = random.Random(3)
-    pool = [PY_PREDATOR, RUST_PREDATOR, PY_IMPROVED]
+    pool = [RUST_PREDATOR, RUST_IMPROVED]  # deterministic bots only
     sizes = [None, "20 20", "25 25", "30 30", "35 35", "40 40", "50 50", "24 40", "40 24", "15 15"]
     cases = []
     count = 18 if quick else 72
@@ -342,11 +341,11 @@ def ejection_cases(tmp):
         f.write(BOT_SOURCE)
     tb = lambda mode, turn=0: "%s %s %s %d" % (sys.executable, path, mode, turn)
     return [
-        ("crash", [PY_IMPROVED, tb("crash", 20)], ["-s", "11", "-d", "20 20"]),
-        ("timeout", [RUST_PREDATOR, tb("timeout", 15), PY_IMPROVED], ["-s", "12", "-d", "24 20"]),
+        ("crash", [RUST_IMPROVED, tb("crash", 20)], ["-s", "11", "-d", "20 20"]),
+        ("timeout", [RUST_PREDATOR, tb("timeout", 15), RUST_IMPROVED], ["-s", "12", "-d", "24 20"]),
         ("close", [tb("close", 9), RUST_PREDATOR], ["-s", "13", "-d", "20 20"]),
-        ("stdin-close", [tb("stdin-close", 6), PY_IMPROVED], ["-s", "20", "-d", "20 20"]),
-        ("init-crash", [tb("init-crash"), RUST_PREDATOR, PY_IMPROVED], ["-s", "14", "-d", "21 21"]),
+        ("stdin-close", [tb("stdin-close", 6), RUST_IMPROVED], ["-s", "20", "-d", "20 20"]),
+        ("init-crash", [tb("init-crash"), RUST_PREDATOR, RUST_IMPROVED], ["-s", "14", "-d", "21 21"]),
         ("init-close", [RUST_PREDATOR, tb("init-close")], ["-s", "15", "-d", "20 20"]),
         ("garbage", [tb("garbage"), RUST_PREDATOR, tb("blank")], ["-s", "16", "-d", "30 30"]),
         ("garbage-q", [tb("garbage"), tb("crash", 5), RUST_PREDATOR, tb("timeout", 7)],
@@ -386,7 +385,7 @@ def main():
     ap.add_argument("--workers", type=int, default=max(1, (os.cpu_count() or 2) // 2))
     args = ap.parse_args()
 
-    for path in [RUST_ENGINE, os.path.join(HERE, RUST_PREDATOR)]:
+    for path in [RUST_ENGINE, os.path.join(HERE, RUST_PREDATOR), os.path.join(HERE, RUST_IMPROVED)]:
         if not os.path.exists(path):
             fail("%s not built (cargo build --release)" % path)
 

@@ -1,6 +1,6 @@
-//! PredatorBot: an aggressive, combat-first bot. A faithful port of
-//! starter-kit/python/PredatorBot.py (same constants, same logic, same
-//! tie-breaking), so both versions pick the same moves on the same map.
+//! PredatorBot: an aggressive, combat-first bot. First written in Python and
+//! ported move for move (same constants, same logic, same tie-breaking): the
+//! two versions produced identical replays before the Python one was retired.
 //!
 //!   1. Hunt. Neutral sites on the way to an enemy are worth more.
 //!   2. Overkill. Combat targets are scored by the total enemy strength they touch.
@@ -330,7 +330,7 @@ impl Bot {
 
 fn main() {
     let (my_id, game_map, mut conn) = get_init();
-    send_init("RustPredatorBot");
+    send_init("PredatorBot");
 
     let (w, h) = (game_map.width as usize, game_map.height as usize);
     let n = w * h;

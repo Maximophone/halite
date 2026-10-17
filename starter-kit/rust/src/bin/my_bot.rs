@@ -25,7 +25,7 @@ impl Rng {
 
 fn main() {
     let (my_id, _game_map, mut conn) = get_init();
-    send_init("RustBot");
+    send_init("MyBot");
     let mut rng = Rng::new();
 
     loop {

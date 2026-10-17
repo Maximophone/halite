@@ -28,17 +28,19 @@ Sources used for the rules:
 | `halite.py` | Everything engine-side: map generator, `GameState` (rules), `Bot` (subprocess + pipes), `run_game()`, replay writing, CLI |
 | `viewer.html` | Self-contained replay viewer (canvas, no dependencies). Contains the placeholder `<!--EMBEDDED_REPLAY-->` that `write_replay_html()` replaces with `<script>window.EMBEDDED_REPLAY = {...}</script>` |
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
-| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/replays/*.hlt`, pause/resume |
+| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt`. Charts (hand-written SVG, no libraries) from `/api/analytics` every 10 s: rating curves, head-to-head matrix, selected-bot panel. Bot colours follow `order` (first appearance), dark palette validated with the dataviz skill against the `#121720` surface |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/python/hlt.py`, `networking.py` | Original 2016 API (camelCase: `getInit`, `sendInit`, `getFrame`, `sendFrame`, `GameMap.getSite`, `Location`, `Move`, `STILL..WEST`) |
-| `starter-kit/python/MyBot.py` | User's bot, starts as a random bot |
-| `starter-kit/python/RandomBot.py` | Original sample bot |
-| `starter-kit/python/ImprovedBot.py` | Heuristic sparring bot; beats RandomBot every time |
-| `starter-kit/python/PredatorBot.py` | Strongest bot so far (see below) |
-| `starter-kit/rust/` | Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`), `src/bin/my_bot.rs` random template, `src/bin/predator_bot.rs` exact port of PredatorBot (name `RustPredatorBot`) |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (strongest, see below). The arena names them by CamelCasing the file stem |
+
+The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
+`getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
+identical (40 games each, 2 to 6 players, same seeds and seats, replays equal frame for frame)
+before the Python kit was deleted; it is in git history (commit before the Rust-only switch) if
+an old Python bot ever needs it. The protocol is unchanged, so 2016-era bots in any language
+still run.
 
 Generated, git-ignored: `engine/target/`, `starter-kit/rust/target/` (cargo build output), `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
 `examples/` (a sample game; regenerate with the command in README).
@@ -120,8 +122,10 @@ The viewer computes territory/production/strength curves from frames. A 40x40, 4
 
 ```bash
 python3 test_rules.py                                   # 10 rule checks, must all pass
-python3 halite.py -d "30 30" -s 7 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
-python3 tournament.py -n 6 -s 1 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
+(cd starter-kit/rust && cargo build --release)            # bots
+(cd engine && cargo build --release)                    # engine
+python3 halite.py -d "30 30" -s 7 starter-kit/rust/target/release/improved_bot starter-kit/rust/target/release/random_bot
+python3 tournament.py -n 6 -s 1 starter-kit/rust/target/release/improved_bot starter-kit/rust/target/release/random_bot
 python3 check_engine.py                                 # Rust engine still identical (build it first)
 ```
 Already verified: crash and timeout ejection (a bot sleeping 2 s on turn 20, a bot exiting on
@@ -167,7 +171,7 @@ How identity is achieved:
 
 `check_engine.py` covers maps (sizes including 0, negative, 1x1, default random size; seeds 0,
 negative, above 2^64), 20,017 random or edge-case steps via `--step-test`, 72 games (1 to 6
-players, PredatorBot Python and Rust, ImprovedBot, `-q`, `--no-html`, `--turns`) and 10 ejection
+players, Rust PredatorBot and ImprovedBot (Python versions until they were retired), `-q`, `--no-html`, `--turns`) and 10 ejection
 games with a raw-protocol test bot (crash, timeout, stdout closed, stdin closed with a queued
 answer, init crash, init close, missing binary, garbage moves with `\r\n` and a Unicode name).
 Not covered: the 15 s init timeout (too slow to test; same code path as the turn timeout).
@@ -200,12 +204,12 @@ Rust port fidelity: it reproduces Python's tie-breaking (heap ordered like the t
 `(-value, site, dir, fight)`, `max()` over `(value, dir, site)` tuples, stable sorts, dict
 insertion order for packs and cap control). Checked by running Rust-vs-Python and
 Python-vs-Python games on the same seed: replays identical frame for frame. If you change
-`PredatorBot.py`, port the change and redo that check. `tournament.py -n 20 -s 11` Rust vs
-Python: 11-9.
+`PredatorBot.py` (since deleted; predator_bot.rs is now the only version). `tournament.py -n 20 -s 11` Rust vs
+Python was 11-9.
 
 ## Ideas not done yet (only if Maxime asks)
 
-- Starter kits for more languages (Python and Rust exist; the protocol is plain text).
+- Starter kits for more languages (only Rust now; the protocol is plain text).
 - A stronger reference bot (border-routing of interior strength, overkill tactics,
   non-aggression pact from the late 2016 meta: let others attack first).
 - TrueSkill ratings (the arena uses multiplayer Elo).
@@ -215,6 +219,6 @@ Python: 11-9.
 ## Conventions
 
 - Maxime's writing preference: **never use em-dashes** in prose, docs or messages.
-- Keep files self-contained and dependency-free; keep the original starter-kit API names
-  even though they are not PEP 8, since compatibility with old bots is the point.
+- Keep files self-contained and dependency-free (Python stdlib, Rust std, no crates). Never
+  change the bot protocol: compatibility with old bots is the point.
 - Commits go on `main`, authored by Maxime Fournes <maxime@pauseia.fr> (the first two commits were made from a sandbox with that identity passed explicitly).

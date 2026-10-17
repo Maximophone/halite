@@ -4,7 +4,7 @@ Run many games between bots on random maps and report win rates and
 average finishing positions.
 
 Usage:
-    python3 tournament.py -n 20 "python3 MyBot.py" "python3 ImprovedBot.py"
+    python3 tournament.py -n 20 starter-kit/rust/target/release/my_bot starter-kit/rust/target/release/improved_bot
     python3 tournament.py -n 10 --players 4 "python3 A.py" "python3 B.py" "python3 C.py" "python3 D.py"
 
 With --players smaller than the number of bots, each game samples that many

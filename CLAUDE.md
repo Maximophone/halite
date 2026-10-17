@@ -28,10 +28,11 @@ Sources used for the rules:
 | `halite.py` | Everything engine-side: map generator, `GameState` (rules), `Bot` (subprocess + pipes), `run_game()`, replay writing, CLI |
 | `viewer.html` | Self-contained replay viewer (canvas, no dependencies). Contains the placeholder `<!--EMBEDDED_REPLAY-->` that `write_replay_html()` replaces with `<script>window.EMBEDDED_REPLAY = {...}</script>` |
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
-| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
+| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, skill ratings (Weng-Lin Plackett-Luce, see "Arena ratings") rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000, per-bot `[mu, sigma]` under `skill`) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt`. Charts (hand-written SVG, no libraries) from `/api/analytics` every 10 s: rating curves, head-to-head matrix, selected-bot panel. Bot colours follow `order` (first appearance), dark palette validated with the dataviz skill against the `#121720` surface |
 | `tools/combat_report.py` | Splits each player's strength losses in a replay into damage per opponent, neutrals and the cap |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
+| `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
 | `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"), `hal_lite` (port of a 2016 competitor's bot, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
@@ -123,6 +124,7 @@ The viewer computes territory/production/strength curves from frames. A 40x40, 4
 
 ```bash
 python3 test_rules.py                                   # 10 rule checks, must all pass
+python3 test_ratings.py                                 # arena rating checks
 (cd starter-kit/rust && cargo build --release)            # bots
 (cd engine && cargo build --release)                    # engine
 python3 halite.py -d "30 30" -s 7 starter-kit/rust/target/release/improved_bot starter-kit/rust/target/release/random_bot
@@ -327,12 +329,35 @@ Results (100 games per format, `--seed 5`): vs PredatorBot pool 86% 1v1, 83% ffa
 (ApexGamma on its own seeds: 97.5 / 76 / 71); vs ApexGamma 34% of 1v1s, 32% of ffa4 (2 ApexGammas
 + ImprovedBot). A 19th-place 2016 bot is a real opponent for the Apex line.
 
+## Arena ratings (2026-10-17, replaced multiplayer Elo)
+
+Maxime asked whether TrueSkill would beat the pairwise multiplayer Elo. Not strictly, but a
+rating with uncertainty ranks new bots honestly sooner and rates an N-player finishing order
+natively. Chosen: the Weng-Lin Bayesian approximation with the Plackett-Luce model (Weng and Lin,
+JMLR 2011, what the `openskill` package implements), not TrueSkill itself: same idea (a mean mu
+and an uncertainty sigma per bot), patent-free, and about 40 lines (`rate` in `arena.py`) with no
+Gaussian message passing. Ties (equal ranks) are supported, though the engine never produces them.
+
+- Parameters: `MU = 25`, `SIGMA = MU / 3`, `BETA = MU / 6`, `KAPPA = 1e-4` (openskill defaults),
+  `TAU = MU / 3000` (openskill uses MU / 300). Replaying the 10,400 listed games: with MU / 300
+  sigma settled near 1.7 and the conservative curves jittered by about 1.3; with MU / 3000 sigma
+  settles near 0.7 and the jitter halves, while the order of the bots is the same. TAU 0 differs
+  little over 10k games but would eventually freeze ratings, which matters if `my_bot` changes.
+- Leaderboard order and the rating curves use the conservative rating mu - 3 sigma; the table also
+  shows mu and sigma. A new bot starts at 0 conservative and needs about 50 games to halve sigma.
+- A bot with several seats in one game (fewer bots than seats) gets the sum of its seats' mean
+  changes and the product of their variance shrinks.
+- Migration: an old `state.json` holds Elo under `ratings`, which cannot be converted. On load
+  it is dropped and skills restart from the games still in `games.jsonl` (10,000 is plenty for
+  the estimates to settle); win and game totals are kept. First run on Maxime's data: ApexBeta
+  37.8, ApexGamma 37.3 (only 3k games, still close), ApexAlpha 28.2, PredatorBot 23.5,
+  ImprovedBot 18.9, RandomBot 13.9, MyBot 13.1.
+
 ## Ideas not done yet (only if Maxime asks)
 
 - Starter kits for more languages (only Rust now; the protocol is plain text).
 - A stronger reference bot (border-routing of interior strength, overkill tactics,
   non-aggression pact from the late 2016 meta: let others attack first).
-- TrueSkill ratings (the arena uses multiplayer Elo).
 - Viewer: zoom, per-player highlighting, loading the original 2016 `.hlt` replay format.
 - Push to GitHub: no remote is configured. Ask whether public or private before creating one.
 

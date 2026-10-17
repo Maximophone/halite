@@ -115,7 +115,9 @@
     <div class="scroll">
       <table id="board">
         <thead><tr>
-          <th>#</th><th>Bot</th><th class="num">Rating</th><th class="num">Games</th>
+          <th>#</th><th>Bot</th><th class="num" title="Conservative skill, mean - 3 x uncertainty: the leaderboard order">Rating</th>
+          <th class="num hide-sm" title="Estimated skill (mean)">Skill &mu;</th>
+          <th class="num hide-sm" title="Uncertainty of the skill estimate; shrinks with games">&plusmn; &sigma;</th><th class="num">Games</th>
           <th class="num">Wins</th><th class="num">Win %</th>
           <th class="num hide-sm" title="0 = always last, 1 = always first">Placement</th>
           <th class="num hide-sm" title="Crashes and timeouts">Errors</th>
@@ -139,7 +141,7 @@
   </section>
 
   <section>
-    <h2><span class="grow">Ratings over time</span><span class="sub" id="ratingSub"></span></h2>
+    <h2><span class="grow">Ratings over time</span><span class="sub">mean - 3 &sigma;</span><span class="sub" id="ratingSub"></span></h2>
     <div class="legend" id="legend"></div>
     <div class="chartbox" id="ratingChart"></div>
   </section>
@@ -209,7 +211,9 @@
       <tr data-bot="${esc(r.bot)}" class="${r.bot === filter ? "sel" : ""}${r.active === false ? " retired" : ""}">
         <td class="${i === 0 ? "rank1" : ""}">${r.active === false ? "" : i + 1}</td>
         <td class="${i === 0 ? "rank1" : ""}">${esc(r.bot)}${r.active === false ? ' <span class="tag">retired</span>' : ""}</td>
-        <td class="num">${r.rating}</td>
+        <td class="num">${r.rating.toFixed(1)}</td>
+        <td class="num hide-sm">${r.mu == null ? "-" : r.mu.toFixed(1)}</td>
+        <td class="num hide-sm">${r.sigma == null ? "-" : r.sigma.toFixed(2)}</td>
         <td class="num">${r.games}</td>
         <td class="num">${r.wins}</td>
         <td class="num">${r.games ? Math.round(100 * r.wins / r.games) : 0}%</td>
@@ -326,7 +330,7 @@
     const s = svg(W, H);
     for (let v = lo; v <= hi; v += st) {
       el(s, "line", {x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1});
-      el(s, "text", {x: m.l - 8, y: Y(v) + 4, "text-anchor": "end", fill: css("--ink3"), "font-size": 11, "font-variant-numeric": "tabular-nums"}, v);
+      el(s, "text", {x: m.l - 8, y: Y(v) + 4, "text-anchor": "end", fill: css("--ink3"), "font-size": 11, "font-variant-numeric": "tabular-nums"}, +v.toPrecision(10));
     }
     const xs = niceStep(x1 - x0, Math.max(2, Math.floor((W - m.l - m.r) / 110)));
     for (let v = Math.ceil(x0 / xs) * xs; v <= x1; v += xs)
@@ -343,7 +347,7 @@
     if (sel && A.ratings[sel] && !narrow) {
       const last = A.ratings[sel][A.ratings[sel].length - 1];
       el(s, "circle", {cx: X(x1), cy: Y(last), r: 4, fill: color(sel), stroke: css("--panel"), "stroke-width": 2});
-      el(s, "text", {x: X(x1) + 10, y: Y(last) + 4, fill: css("--ink2"), "font-size": 12}, `${sel} ${Math.round(last)}`);
+      el(s, "text", {x: X(x1) + 10, y: Y(last) + 4, fill: css("--ink2"), "font-size": 12}, `${sel} ${last.toFixed(1)}`);
     }
     // Crosshair + tooltip
     const cross = el(s, "line", {y1: m.t, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1, visibility: "hidden"});
@@ -354,7 +358,7 @@
       A.x.forEach((v, k) => { const dd = Math.abs(X(v) - px); if (dd < best) { best = dd; i = k; } });
       cross.setAttribute("x1", X(A.x[i])); cross.setAttribute("x2", X(A.x[i])); cross.setAttribute("visibility", "visible");
       const rows = bots.filter(b => A.ratings[b][i] !== null).sort((a, b) => A.ratings[b][i] - A.ratings[a][i]);
-      showTip(e, `<div class="hd">after game ${A.x[i]}</div>` + rows.map(b => row(b, Math.round(A.ratings[b][i]))).join(""));
+      showTip(e, `<div class="hd">after game ${A.x[i]}</div>` + rows.map(b => row(b, A.ratings[b][i].toFixed(1))).join(""));
     });
     hit.addEventListener("mouseleave", () => { cross.setAttribute("visibility", "hidden"); hideTip(); });
     hit.addEventListener("click", () => {});
@@ -488,11 +492,11 @@
     $("botSub").textContent = `charts cover games ${compact(A.first_game)} onward`;
     const curve = A.ratings[sel] || [], now = curve[curve.length - 1];
     const back = curve.length > 1 ? curve[Math.max(0, curve.length - 1 - Math.ceil(curve.length / 10))] : null;
-    const d = back !== null && now !== undefined ? Math.round(now - back) : null;
+    const d = back !== null && now !== undefined ? Math.round(10 * (now - back)) / 10 : null;
     const tw = info.turns_win, tl = info.turns_loss;
     $("tiles").innerHTML = [
-      ["Rating", Math.round(lb.rating ?? now ?? 0), d === null ? "" : `<span class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "▲" : "▼"} ${Math.abs(d)}</span> over the last 10% of games`],
-      ["Rank", lb.rating ? (window.arenaBoard.indexOf(lb) + 1) + " of " + window.arenaBoard.length : "-", ""],
+      ["Rating", (lb.rating ?? now ?? 0).toFixed(1), d === null ? "" : `<span class="${d >= 0 ? "up" : "down"}">${d >= 0 ? "▲" : "▼"} ${Math.abs(d)}</span> over the last 10% of games`],
+      ["Rank", lb.bot ? (window.arenaBoard.indexOf(lb) + 1) + " of " + window.arenaBoard.length : "-", ""],
       ["Win rate", (lb.games ? pct(lb.wins, lb.games) : 0) + "%", `${compact(lb.wins || 0)} of ${compact(lb.games || 0)} games`],
       ["Turns to win", tw[1] ? Math.round(tw[0] / tw[1]) : "-", tl[1] ? `${Math.round(tl[0] / tl[1])} in games it lost` : ""],
       ["Errors", lb.errors ?? 0, "crashes and timeouts"],

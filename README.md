@@ -70,8 +70,9 @@ Bots in other languages: anything that speaks the protocol works.
 python3 arena.py --bot "RustBot=./bots/rust/target/release/rustbot" --bot "CBot=./bots/c/cbot"
 ```
 
-Everything is stored in `arena/` (`games.jsonl` plus replays). Stop with Ctrl-C and restart any
-time: ratings are rebuilt from `games.jsonl`. Only the latest 200 replays are kept (`--keep N`; a replay is about 2 MB).
+Everything is stored in `arena/`: `games.jsonl` holds the latest 10,000 games (`--history N`),
+`state.json` the ratings and totals of everything older, plus the replays. Disk use, memory and
+startup time stay bounded however long it runs. Stop with Ctrl-C and restart any time: nothing is lost. Only the latest 200 replays are kept (`--keep N`; a replay is about 2 MB).
 The server listens on this machine only unless you pass `--host 0.0.0.0`.
 
 ## The rules

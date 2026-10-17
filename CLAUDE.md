@@ -28,7 +28,7 @@ Sources used for the rules:
 | `halite.py` | Everything engine-side: map generator, `GameState` (rules), `Bot` (subprocess + pipes), `run_game()`, replay writing, CLI |
 | `viewer.html` | Self-contained replay viewer (canvas, no dependencies). Contains the placeholder `<!--EMBEDDED_REPLAY-->` that `write_replay_html()` replaces with `<script>window.EMBEDDED_REPLAY = {...}</script>` |
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
-| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt from it on start, stdlib HTTP server for `arena.html`, `/api/state`, `/replays/*.hlt`, pause/resume |
+| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/replays/*.hlt`, pause/resume |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt` |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `starter-kit/python/hlt.py`, `networking.py` | Original 2016 API (camelCase: `getInit`, `sendInit`, `getFrame`, `sendFrame`, `GameMap.getSite`, `Location`, `Move`, `STILL..WEST`) |

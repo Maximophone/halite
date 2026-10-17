@@ -4,7 +4,8 @@ A local re-creation of **Halite**, the first season (2016 to 2017) of the AI pro
 competition run by Two Sigma and Cornell Tech. Write a bot, pit it against others, and
 watch the replay.
 
-Only Python 3 is needed (no packages to install).
+Only Python 3 is needed (no packages to install). An optional Rust engine plays the same
+games about 5 times faster (see [The Rust engine](#the-rust-engine)).
 
 ## Quick start
 
@@ -35,23 +36,31 @@ To generate a sample game to look at: `python3 halite.py -d "40 40" -s 2016 -o e
 | `tournament.py` | Runs many games and reports wins and average rank |
 | `arena.py`, `arena.html` | Endless tournament server with a leaderboard and a browsable list of every game |
 | `test_rules.py` | Checks for the combat, movement and production rules |
+| `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
+| `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
 | `starter-kit/python/` | `hlt.py` and `networking.py` (original API), `MyBot.py`, `RandomBot.py`, `ImprovedBot.py`, `PredatorBot.py` |
 | `starter-kit/rust/` | Rust starter kit (no external crates): `hlt` module, `my_bot` (random template), `predator_bot` (port of PredatorBot) |
 
 ## Options
 
 ```
-python3 halite.py [-d "W H"] [-s SEED] [-t] [-q] [-o DIR] [--no-replay] [--no-html] [--turns N] BOT [BOT ...]
+python3 halite.py [-d "W H"] [-s SEED] [-t] [-q] [-o DIR] [--no-replay] [--no-html] [--turns N]
+                  [--log-dir DIR] [--no-logs] BOT [BOT ...]
   -d   map size (default: random square from 20 to 50)
   -s   map seed, to replay the same map
   -t   no timeouts (lets you debug a slow bot)
   -q   print only a JSON summary
 ```
 
+`engine/target/release/halite` takes exactly the same options.
+
 ```bash
 python3 tournament.py -n 20 "python3 starter-kit/python/MyBot.py" "python3 starter-kit/python/ImprovedBot.py"
 python3 tournament.py -n 20 --players 4 "python3 a.py" "python3 b.py" "python3 c.py" "python3 d.py" "python3 e.py"
 ```
+
+`tournament.py` and `arena.py` use the Rust engine when it is built and fall back to
+`halite.py` otherwise; `--engine python` or `--engine rust` forces one.
 
 ## The arena
 
@@ -199,7 +208,33 @@ cleanly when the environment closes stdin.
 `predator_bot` is a move-for-move port of `PredatorBot.py`: on the same map both versions
 produce identical replays. It reports its name as `RustPredatorBot`. A 50x50 4-player game takes
 about 1.8 s with four Rust PredatorBots against about 4 s with four Python ones (same game, same
-moves); with Rust bots most of the remaining time is the Python engine.
+moves); with Rust bots most of the remaining time is the Python engine, hence the Rust engine below.
+
+## The Rust engine
+
+`engine/` is a Rust port of `halite.py` (standard library only). Same command line, same
+console output, same `.hlt` and `.html` files, same bot protocol and timeouts, and above all
+the same games: a seed gives the identical map (it reimplements Python's Mersenne Twister and
+`random()`, `choice`, `shuffle`), and every turn gives the identical result. `halite.py`
+stays the reference.
+
+```bash
+cd engine && cargo build --release && cd ..
+engine/target/release/halite -d "30 30" -s 42 "python3 starter-kit/python/MyBot.py" "./starter-kit/rust/target/release/predator_bot"
+python3 check_engine.py          # prove it matches halite.py (about 2 minutes; --quick for less)
+```
+
+`check_engine.py` compares the two engines on thousands of maps (seeds, sizes, 1 to 6 players,
+the default random size), on 20,000 random single-turn states plus the edge cases of
+`test_rules.py` (zero-strength pieces, the 255 cap, overkill, neutral fights, tiny wrapping
+maps), on 72 full games with deterministic bots, and on crash, timeout, closed-pipe, init-failure
+and garbage-output bots. Replays, summaries and console output must match byte for byte.
+
+Measured on a 50x50 4-player game with four Rust PredatorBots: 2.3 s on `halite.py`, 0.4 s on
+the Rust engine. The arena with Rust bots goes from about 250 to about 1,370 games per minute.
+
+One known difference: Python's `int()` accepts non-ASCII digits (such as Arabic-Indic `١`) in a
+bot's move line, the Rust engine ignores such a move. No real bot sends those.
 
 ## How close is it to the original?
 

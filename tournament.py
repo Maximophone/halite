@@ -15,7 +15,7 @@ import argparse
 import random
 from collections import defaultdict
 
-from halite import run_game
+from halite import play_game, resolve_engine
 
 
 def main():
@@ -26,7 +26,11 @@ def main():
     ap.add_argument("-d", "--dimensions", help='fixed map size "W H" (default random)')
     ap.add_argument("--keep-replays", action="store_true")
     ap.add_argument("-s", "--seed", type=int, help="seed for the sequence of games")
+    ap.add_argument("--engine", choices=["auto", "python", "rust"], default="auto",
+                    help="game engine (default: Rust when engine/ is built, else Python)")
     args = ap.parse_args()
+    engine = resolve_engine(args.engine)
+    print("Engine: %s" % engine)
 
     rng = random.Random(args.seed)
     per_game = args.players or len(args.bots)
@@ -41,9 +45,9 @@ def main():
 
     for g in range(1, args.games + 1):
         lineup = rng.sample(args.bots, per_game)
-        res = run_game(lineup, w, h, rng.randrange(2 ** 31), quiet=True,
-                       replay_dir="replays" if args.keep_replays else None,
-                       write_html=args.keep_replays)
+        res = play_game(lineup, w, h, rng.randrange(2 ** 31),
+                        replay_dir="replays" if args.keep_replays else None,
+                        write_html=args.keep_replays, engine=engine)
         line = []
         for r in res["results"]:
             cmd = r["command"]

@@ -31,7 +31,7 @@ import threading
 import time
 import urllib.parse
 
-from halite import run_game
+from halite import play_game, resolve_engine
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 BOT_GLOB = os.path.join(HERE, "starter-kit", "python", "*Bot.py")
@@ -58,9 +58,9 @@ def _write_atomic(path, text):
 def play(spec):
     """Run one game. `spec` is picklable so it can go to a worker process."""
     t0 = time.time()
-    res = run_game([cmd for _, cmd in spec["bots"]], seed=spec["seed"],
-                   replay_dir=spec["replay_dir"], write_html=False,
-                   log_dir=None, quiet=True)
+    res = play_game([cmd for _, cmd in spec["bots"]], seed=spec["seed"],
+                    replay_dir=spec["replay_dir"], write_html=False,
+                    log_dir=None, engine=spec["engine"])
     players = []
     for r in res["results"]:
         bot_id = spec["bots"][r["player"] - 1][0]
@@ -106,7 +106,7 @@ def apply_game(game, ratings, stats):
 
 
 class Arena:
-    def __init__(self, data_dir, extra_bots, discover, keep, history):
+    def __init__(self, data_dir, extra_bots, discover, keep, history, engine="python"):
         self.data_dir = data_dir
         self.replay_dir = os.path.join(data_dir, "replays")
         self.games_path = os.path.join(data_dir, "games.jsonl")
@@ -116,6 +116,7 @@ class Arena:
         self.discover = discover
         self.keep = keep
         self.history = history
+        self.engine = engine
         self.lock = threading.Lock()
         self.paused = False
         self.running = {}            # game id -> spec
@@ -235,6 +236,7 @@ class Arena:
             gid = self.next_id
             self.next_id += 1
             spec = {"id": gid, "seed": rng.randrange(2 ** 31), "replay_dir": self.replay_dir,
+                    "engine": self.engine,
                     "bots": [(b, bots[b]) for b in lineup], "started": time.time()}
             self.running[gid] = spec
         return spec
@@ -404,6 +406,8 @@ def main():
                     help="games listed and kept in games.jsonl; older ones only live on in the ratings")
     ap.add_argument("--data", default=os.path.join(HERE, "arena"), help="where games and replays are stored")
     ap.add_argument("--seed", type=int, help="seed for matchmaking")
+    ap.add_argument("--engine", choices=["auto", "python", "rust"], default="auto",
+                    help="game engine (default: Rust when engine/ is built, else Python)")
     args = ap.parse_args()
 
     extra = {}
@@ -413,16 +417,20 @@ def main():
             ap.error("--bot expects NAME=COMMAND, got %r" % entry)
         extra[name.strip()] = cmd.strip()
 
-    arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history)
+    try:
+        engine = resolve_engine(args.engine)
+    except RuntimeError as err:
+        ap.error(str(err))
+    arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history, engine)
     if len(arena.bots()) < 2:
         print("Need at least 2 bots, found: %s" % (", ".join(arena.bots()) or "none"))
         sys.exit(1)
 
     server = http.server.ThreadingHTTPServer((args.host, args.port), make_handler(arena))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print("Arena running at http://%s:%d  (%d workers, bots: %s)" % (
+    print("Arena running at http://%s:%d  (%d workers, %s engine, bots: %s)" % (
         "localhost" if args.host == "127.0.0.1" else args.host, args.port,
-        args.workers, ", ".join(sorted(arena.bots()))), flush=True)
+        args.workers, engine, ", ".join(sorted(arena.bots()))), flush=True)
     if arena.games:
         print("Resuming with %d games already played." % len(arena.games), flush=True)
 

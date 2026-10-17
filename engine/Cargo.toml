@@ -1,0 +1,15 @@
+[package]
+name = "halite-engine"
+version = "0.1.0"
+edition = "2021"
+
+# No external crates: everything (JSON writing, Python's Mersenne Twister,
+# local time for replay names) is done with the standard library.
+[dependencies]
+
+[[bin]]
+name = "halite"
+path = "src/main.rs"
+
+[profile.release]
+opt-level = 3

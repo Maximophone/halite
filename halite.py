@@ -39,6 +39,7 @@ MAX_PLAYERS = 6
 VERSION = 1
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+RUST_ENGINE = os.path.join(HERE, "engine", "target", "release", "halite")
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +504,51 @@ def run_game(commands, width=None, height=None, seed=None, no_timeout=False,
             "replay": replay_path, "html": html_path}
 
 
+def resolve_engine(engine="auto"):
+    """'python', 'rust' or 'auto' (the Rust engine when it is built)."""
+    if engine == "auto":
+        return "rust" if os.access(RUST_ENGINE, os.X_OK) else "python"
+    if engine == "rust" and not os.access(RUST_ENGINE, os.X_OK):
+        raise RuntimeError("Rust engine not built: run `cargo build --release` in engine/")
+    if engine not in ("python", "rust"):
+        raise ValueError("engine must be auto, python or rust")
+    return engine
+
+
+def play_game(commands, width=None, height=None, seed=None, no_timeout=False,
+              replay_dir="replays", write_html=True, log_dir="logs", max_turns=None,
+              engine="auto"):
+    """
+    Like run_game(..., quiet=True), but on the Rust engine when `engine` is
+    "rust" (or "auto" and it is built). Both engines play identical games
+    (check_engine.py), the Rust one is several times faster.
+    """
+    if resolve_engine(engine) == "python":
+        return run_game(commands, width, height, seed, no_timeout, replay_dir,
+                        write_html, log_dir, True, max_turns)
+    if not 1 <= len(commands) <= MAX_PLAYERS:
+        raise ValueError("Halite supports 1 to %d players" % MAX_PLAYERS)
+    args = [RUST_ENGINE, "-q"]
+    if width is not None or height is not None:
+        if width is None or height is None:
+            raise ValueError("give both width and height, or neither")
+        args += ["-d", "%d %d" % (width, height)]
+    if seed is not None:
+        args += ["-s", str(seed)]
+    if no_timeout:
+        args.append("-t")
+    args += ["-o", replay_dir] if replay_dir else ["--no-replay"]
+    if not write_html:
+        args.append("--no-html")
+    args += ["--log-dir", log_dir] if log_dir else ["--no-logs"]
+    if max_turns:
+        args += ["--turns", str(max_turns)]
+    proc = subprocess.run(args + ["--"] + list(commands), capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError("Rust engine failed (%d): %s" % (proc.returncode, proc.stderr.strip()))
+    return json.loads(proc.stdout)
+
+
 def _flat(grid):
     return [v for row in grid for v in row]
 
@@ -531,6 +577,8 @@ def main():
     ap.add_argument("--no-replay", action="store_true", help="do not write replay files")
     ap.add_argument("--no-html", action="store_true", help="skip the standalone HTML replay")
     ap.add_argument("--turns", type=int, help="override the turn limit")
+    ap.add_argument("--log-dir", default="logs", help="where bot stderr logs go")
+    ap.add_argument("--no-logs", action="store_true", help="discard bot stderr")
     args = ap.parse_args()
 
     w = h = None
@@ -540,7 +588,8 @@ def main():
 
     result = run_game(args.bots, w, h, args.seed, args.no_timeout,
                       None if args.no_replay else args.replay_dir,
-                      not args.no_html, "logs", args.quiet, args.turns)
+                      not args.no_html, None if args.no_logs else args.log_dir,
+                      args.quiet, args.turns)
     if args.quiet:
         print(json.dumps(result))
 

@@ -463,7 +463,11 @@ fn train() -> Result<()> {
 
     let warmup = 300.min(steps / 10);
     let (mut l_sum, mut l_n, mut s_ok, mut s_n) = (0.0, 0, 0.0, 0.0);
-    let mut best = f64::INFINITY;
+    // on resume, best.hnn keeps the lowest validation loss logged so far
+    let mut best = std::fs::read_to_string(run.join("log.txt")).unwrap_or_default().lines()
+        .filter_map(|l| l.strip_prefix("eval step ")?.split("val loss ").nth(1)?.split_whitespace().next()?.parse::<f64>().ok())
+        .filter(|_| start > 0)
+        .fold(f64::INFINITY, f64::min);
     let t1 = Instant::now();
     let mut wait = 0.0;
     for step in start..steps {
@@ -651,7 +655,11 @@ fn bench() -> Result<()> {
     for (name, fused, sg) in [("Metal conv, unfused, scalar", false, false), ("fused, scalar kernels", true, false), ("fused, matrix units", true, true)] {
         FUSED.store(fused, Relaxed);
         metal_conv::MATRIX_UNITS.store(sg, Relaxed);
-        let mut best = f64::INFINITY;
+        // on resume, best.hnn keeps the lowest validation loss logged so far
+    let mut best = std::fs::read_to_string(run.join("log.txt")).unwrap_or_default().lines()
+        .filter_map(|l| l.strip_prefix("eval step ")?.split("val loss ").nth(1)?.split_whitespace().next()?.parse::<f64>().ok())
+        .filter(|_| start > 0)
+        .fold(f64::INFINITY, f64::min);
         for _ in 0..6 {
             let t = Instant::now();
             let loss = model.forward(&x)?.sqr()?.mean_all()?;
@@ -701,7 +709,11 @@ fn bench() -> Result<()> {
             ("wgrad", Box::new(|| metal_conv::wgrad(&t4, &t4, 1))),
         ];
         for (name, f) in &ops {
-            let mut best = f64::INFINITY;
+            // on resume, best.hnn keeps the lowest validation loss logged so far
+    let mut best = std::fs::read_to_string(run.join("log.txt")).unwrap_or_default().lines()
+        .filter_map(|l| l.strip_prefix("eval step ")?.split("val loss ").nth(1)?.split_whitespace().next()?.parse::<f64>().ok())
+        .filter(|_| start > 0)
+        .fold(f64::INFINITY, f64::min);
             for _ in 0..5 {
                 let t = Instant::now();
                 sync(&f()?)?;

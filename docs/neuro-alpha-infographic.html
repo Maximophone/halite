@@ -146,8 +146,8 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
     <p class="lede">The first bot in this repo with no hand-written strategy. A convolutional network reads the whole map once per turn and gives every site we own a probability for each of its five moves. For now it learns by watching DexBot, the strongest bot here; reinforcement learning comes next.</p>
     <div class="stats">
       <div class="stat"><b>106k</b><small>parameters, small enough to run on a CPU inside the 1 s turn limit</small></div>
-      <div class="stat"><b>11</b><small>convolution layers, all wrapping around the map edges like the game does</small></div>
-      <div class="stat"><b>91.0%</b><small>of our sites get the same move DexBot chose (validation, step 8,000 of 20,000, still training)</small></div>
+      <div class="stat"><b>91.9%</b><small>of our sites get the same move DexBot chose (validation set)</small></div>
+      <div class="stat"><b>94%</b><small>of 1v1 games won against PredatorBot (82% of 4-player games), with no search and no hand-written rule</small></div>
     </div>
   </header>
 
@@ -280,7 +280,7 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
         <tbody></tbody>
       </table>
     </div>
-    <p class="note">Agreement counts every site we own; about 82% of them stay still, so always predicting STILL scores 82%. The last column is the harder measure: of the sites DexBot actually moved, the share where the network picked the same direction. Training runs to 20,000 steps.</p>
+    <p class="note">Agreement counts every site we own; about 82% of them stay still, so always predicting STILL scores 82%. The last column is the harder measure: of the sites DexBot actually moved, the share where the network picked the same direction. Training ran 20,000 steps (about 55 minutes).</p>
   </section>
 
   <section class="sec">
@@ -290,12 +290,13 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
       <div class="card">
         <h3>Training speed, steps per minute</h3>
         <div class="speed">
-          <div class="srow"><span class="k">candle conv via shift and concatenate</span><div class="track"><div class="fill" style="width:15.7%"></div></div><span class="v">40</span></div>
-          <div class="srow"><span class="k">gather (im2col) + matmul</span><div class="track"><div class="fill" style="width:28.3%"></div></div><span class="v">72</span></div>
-          <div class="srow"><span class="k">hand-written Metal kernel</span><div class="track"><div class="fill" style="width:66.5%"></div></div><span class="v">169</span></div>
-          <div class="srow best"><span class="k">plus tiled weight gradient</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="v">254</span></div>
+          <div class="srow"><span class="k">candle conv via shift and concatenate</span><div class="track"><div class="fill" style="width:5.4%"></div></div><span class="v">40</span></div>
+          <div class="srow"><span class="k">gather (im2col) + matmul</span><div class="track"><div class="fill" style="width:9.8%"></div></div><span class="v">72</span></div>
+          <div class="srow"><span class="k">hand-written Metal conv</span><div class="track"><div class="fill" style="width:23%"></div></div><span class="v">169</span></div>
+          <div class="srow"><span class="k">plus tiled weight gradient</span><div class="track"><div class="fill" style="width:34.6%"></div></div><span class="v">254</span></div>
+          <div class="srow best"><span class="k">fused layers on the matrix units</span><div class="track"><div class="fill" style="width:100%"></div></div><span class="v">734</span></div>
         </div>
-        <p>Each step is about 65,000 sites. Candle's generic gather moved only 4 GB/s, so the wrap-around convolution got its own Metal kernels, compiled at runtime: one for the forward pass and the input gradient, one tiled reduction for the weight gradient.</p>
+        <p>Each step is about 65,000 sites. Candle's generic gather moved only 4 GB/s, so the wrap-around convolution got its own Metal kernels, compiled at runtime. Profiling then showed most of the time in small operations around the convolution, so each layer became one fused kernel (conv, bias, global term, residual, relu, and a compact backward), running on the GPU's 8x8 matrix units.</p>
       </div>
       <div class="card">
         <h3>One file shared by trainer and bot</h3>
@@ -313,6 +314,16 @@ footer { font-size: 0.82rem; color: var(--muted); border-top: 1px solid var(--li
   <section class="sec">
     <div class="eyebrow">Next</div>
     <h2>Phase two: beat the teacher</h2>
+    <div class="tablewrap">
+      <table>
+        <thead><tr><th>Opponents (50 games each)</th><th>1v1</th><th>4 players</th><th>6 players</th></tr></thead>
+        <tbody>
+          <tr><td style="font-family:var(--body)">PredatorBot pool</td><td>94%</td><td>82%</td><td>64%</td></tr>
+          <tr><td style="font-family:var(--body)">ApexGamma</td><td>44%</td><td></td><td></td></tr>
+          <tr><td style="font-family:var(--body)">DexBot, the teacher</td><td>14%</td><td>22%</td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
     <p class="lede">A cloned network is at best as good as DexBot, and small mistakes compound because it never saw the positions its own errors create. Reinforcement learning fixes both: starting from these weights, the network plays itself and a pool of opponents, and a value head learns who is winning. Then PPO moves the policy toward moves that led to better final ranks, not toward what DexBot would have done.</p>
   </section>
 
@@ -403,7 +414,7 @@ const DIL = [1, 1, 2, 1, 2, 4, 1, 2, 4, 8];
 // --- evaluation table --------------------------------------------------------
 (function () {
   const evals = [
-    [1000, 0.3503, 0.8876, 0.4940], [2000, 0.3162, 0.8939, 0.5479], [3000, 0.2908, 0.9005, 0.5717], [4000, 0.2816, 0.9023, 0.5761], [5000, 0.2777, 0.9032, 0.5717], [6000, 0.2666, 0.9056, 0.6103], [7000, 0.2615, 0.9076, 0.6054], [8000, 0.2606, 0.9103, 0.6116],
+    [1000, 0.3503, 0.8876, 0.4940], [2000, 0.3162, 0.8939, 0.5479], [3000, 0.2908, 0.9005, 0.5717], [4000, 0.2816, 0.9023, 0.5761], [5000, 0.2777, 0.9032, 0.5717], [6000, 0.2666, 0.9056, 0.6103], [7000, 0.2615, 0.9076, 0.6054], [8000, 0.2606, 0.9103, 0.6116], [9000, 0.2505, 0.9112, 0.6251], [10000, 0.2500, 0.9096, 0.6189], [11000, 0.2379, 0.9134, 0.6225], [12000, 0.2378, 0.9141, 0.6290], [13000, 0.2325, 0.9159, 0.6516], [14000, 0.2270, 0.9169, 0.6471], [15000, 0.2243, 0.9169, 0.6487], [16000, 0.2224, 0.9181, 0.6552], [17000, 0.2193, 0.9186, 0.6576], [18000, 0.2176, 0.9189, 0.6564], [19000, 0.2171, 0.9189, 0.6566], [20000, 0.2167, 0.9193, 0.6602],
   ].filter(e => e[1] != null);
   const tb = document.querySelector("#evals tbody");
   for (const [s, l, a, r] of evals) {

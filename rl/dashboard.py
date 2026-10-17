@@ -29,8 +29,14 @@ def parse_run(path):
         for line in f:
             line = line.strip()
             if line.startswith("args:"):
-                # a restarted run appends to the same log: keep only the latest session
-                run["steps"], run["evals"] = [], []
+                # a restarted run appends to the same log: keep only the latest session,
+                # unless it resumes (--resume STEP), which continues the same curves
+                r = re.search(r'"--resume", "(\d+)"', line)
+                if r:  # drop what the resumed run will redo
+                    run["steps"] = [x for x in run["steps"] if x["step"] <= int(r.group(1))]
+                    run["evals"] = [x for x in run["evals"] if x["step"] <= int(r.group(1))]
+                else:
+                    run["steps"], run["evals"] = [], []
                 m = re.search(r'"--steps", "(\d+)"', line)
                 run["total"] = int(m.group(1)) if m else 20000
                 run["args"] = line[5:].strip()

@@ -35,7 +35,8 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
+| `rl/` | Neural training, the one place with crates (Maxime chose candle on Metal, 2026-10-17): `src/main.rs` (`halite-rl train`, `parity`, `bench`), `src/metal_conv.rs` (hand-written Metal kernels for the wrap-around conv), `gen_data.py` (teacher games), `dashboard.py` + `dashboard.html` (live training curves, port 8090). See "Neural line" |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -45,12 +46,14 @@ an old Python bot ever needs it. The protocol is unchanged, so 2016-era bots in 
 still run.
 
 Generated, git-ignored: `engine/target/`, `starter-kit/rust/target/` (cargo build output), `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
+`rl/target/`, `rl/data/` (teacher replays), `rl/runs/` (training logs and checkpoints), `rl/checkpoints/` (snapshots and their evaluations),
 `examples/` (a sample game; regenerate with the command in README).
 
 Constraints: **Python 3 standard library only** (tested on 3.10 and 3.13). No packages, no
 build step. Keep it that way unless asked. Exception: Rust code (`engine/`, `starter-kit/rust/`),
 which Maxime asked for; it uses only the Rust standard library (no crates) and is optional:
-everything falls back to Python when it is not built.
+everything falls back to Python when it is not built. Second exception: the training crate `rl/`
+(candle, Metal), which nothing else depends on; the bots it trains stay std-only.
 
 ## Rules as implemented (`GameState.step`)
 
@@ -127,6 +130,7 @@ python3 test_rules.py                                   # 10 rule checks, must a
 python3 test_ratings.py                                 # arena rating checks
 (cd starter-kit/rust && cargo build --release)            # bots
 (cd engine && cargo build --release)                    # engine
+(cd rl && cargo build --release && ./target/release/halite-rl bench)   # Metal kernels vs reference, step timing
 python3 halite.py -d "30 30" -s 7 starter-kit/rust/target/release/improved_bot starter-kit/rust/target/release/random_bot
 python3 tournament.py -n 6 -s 1 starter-kit/rust/target/release/improved_bot starter-kit/rust/target/release/random_bot
 python3 check_engine.py                                 # Rust engine still identical (build it first)
@@ -415,6 +419,82 @@ Verdict:
   17.5% on fresh seeds). Next candidates: DexBot's non-aggression (flat in DexBot's own ablation,
   but Apex breaks walls differently), and why ffa4 lags (trace a lost seed with
   `tools/trace_game.py`).
+
+## Neural line (Maxime: "start working on a reinforcement learning bot", 2026-10-17)
+
+Maxime finished top 20 in 2016 with a CNN trained on replays (no RL) and asked whether this could
+be done in Rust and whether transformers would be better now. Decisions: training in a separate
+crate `rl/` with candle on Metal (his choice among pure-std Rust, candle/burn, PyTorch), the bot
+std-only; behaviour cloning first, then RL (PPO self-play, not started yet).
+`docs/neuro-alpha-infographic.html` explains the architecture for humans.
+
+Architecture (`starter-kit/rust/src/nn.rs`, shared by trainer and bot via `#[path]`, so features
+and inference cannot drift): fully convolutional, channel-last, every 3x3 conv wraps around the
+map edges. Stem conv 11 -> 32 channels, 10 residual blocks
+`h = relu(h + conv3x3_d(h) + b + mean_xy(h) . G)` with dilations 1,1,2,1,2,4,1,2,4,8 (receptive
+field 27 steps each way, more than a 50x50 map; the global mean adds map-wide context from block
+1), head 1x1 -> 5 logits per site, each owned site plays its argmax. 106,085 parameters. 11 input
+planes from the player's seat (mine, enemy, neutral, strength, production, the three
+owner x strength products, free neutral site, turn / turn limit, enemies alive / 5).
+Why not a transformer: actions are local, the torus is free with circular padding, any map size,
+and attention over 2,500 sites is quadratic where a conv layer is linear (about 110 ms per turn
+on 50x50 in plain Rust on a loaded CPU, well inside the 1 s limit).
+
+Weights: format "HNN1" (see nn.rs), written as `model.hnn` / `best.hnn` (lowest validation loss)
+into the run directory at every evaluation. `neuro_alpha` embeds `weights/neuro_alpha.hnn` with
+`include_bytes!` so each binary is a frozen version (new weights for the arena = new bot name);
+`NEURO_WEIGHTS=path` overrides them for evaluation, `NEURO_TEMP=t` samples instead of argmax.
+`halite-rl parity --run DIR` checks candle against nn.rs: max logit difference 1.4e-6, argmax
+identical on 7,678/7,678 sites.
+
+Data and training (behaviour cloning on DexBot):
+- `rl/gen_data.py --games 1200 --seed 1` (and `--games 100 --seed 2 --out rl/data/val`): 2 to 6
+  players, each seat DexBot with probability 0.6, else ApexGamma, HAL-lite, ApexBeta or
+  PredatorBot. About 5 minutes. The trainer imitates the seats named DexBot only: 747,378 frames.
+- `halite-rl train --data rl/data/train --val rl/data/val --run rl/runs/NAME --steps 20000`:
+  batches of about 65,536 sites drawn from one map size (bucket chosen in proportion to its
+  sites), one of the 8 board symmetries at random (move directions remapped), AdamW 1e-3, warmup
+  then cosine. Cross-entropy on our sites only, **each frame weighted equally** (1 / sites
+  owned): with per-site weighting the first network never moved its starting piece, because a
+  one-site opening counted 500 times less than a mid-game frame.
+- `python3 rl/dashboard.py` shows any run live (loss, accuracy, move recall, learning rate).
+- Validation of run bc3: loss 0.350 / accuracy 88.8% / move recall 49% at step 1,000, 0.238 /
+  91.3% / 62% at step 11,000, 0.217 / 91.9% / 66% at step 20,000 (the released weights). Accuracy counts all our sites (always STILL scores 82%); move
+  recall is the share of DexBot's non-STILL moves predicted exactly.
+
+Results (`tools/eval_bot.py --seed 7`, 50 games per format, 0 errors), released weights (bc3
+step 20,000) with the step-10,000 checkpoint in brackets: vs PredatorBot pool 94% 1v1 (86),
+82% ffa4 (70), 64% ffa6 (60), about ApexBeta's level (95 / 83.5 / 75); vs DexBot 14% 1v1 (16),
+22% ffa4 (10); vs ApexGamma 44% 1v1 (32). Training longer kept paying off. Cloning reaches a
+strong bot but stays well below its teacher: errors compound in positions the teacher never
+reaches. That gap is RL's job.
+
+Training speed (the GPU part; data generation is not a bottleneck):
+- candle's own conv2d backward on Metal was about 110 ms per layer; a roll-and-concatenate conv
+  40 steps/min (candle's narrow backward pads every slice to full size); one `index_select`
+  im2col + matmul 72 steps/min (candle's gather moves about 4 GB/s).
+- `metal_conv.rs`: hand-written kernels compiled at runtime (no Xcode needed). Scalar conv and a
+  tiled weight-gradient kernel: 254 steps/min. Run bc3 trained steps 0 to 13,000 with these.
+- Profiling then showed 70% of a step was not the convolution but about 30 small full-size candle
+  ops per block (bias, residual, broadcast, relu and their gradients). `FusedConv` does a whole
+  layer in one kernel: relu(conv(x) + per-image bias [+ x]); backward = one relu-mask pass, one
+  transposed conv with residual and the global-mean gradient folded in as a per-image bias, the
+  weight gradient, one sum. The global mean is detached in the graph for that reason.
+- Matrix units: `conv_fwd_sg` and `conv_wgrad_sg` use `simdgroup_matrix` 8x8 blocks, 32-pixel
+  tiles staged in threadgroup memory. They only helped once staging lost its per-element integer
+  division and modulo (neighbour addresses computed once per tile, Cin padded to a power of two).
+  On these sizes their sums come out bit-identical to the scalar kernels.
+- Full step, 26 x 50x50 batch, measured while bc3 shared the GPU: unfused scalar 393 ms, fused
+  scalar 240 ms, fused matrix 132 ms (3x). In real training: bc3 resumed from step 13,000
+  (`--resume 13000`, Adam state restarts, no visible bump) at 734 steps/min against 251 (2.9x). `bench` checks every gradient of the whole model against
+  the plain candle reference (relative difference under 1e-6) and prints these timings.
+- `--conv fused|metal|gather` picks the path (`fused` is the default and uses the matrix kernels
+  when Cout is 8, 16, 32 or 64 and Cin <= 64).
+
+Next (not started): RL. Plan: value head; an in-process simulator (game.rs as a library) running
+hundreds of games with all their positions batched into one GPU forward pass per turn; PPO from
+the cloned weights against a pool of past checkpoints plus the hand-written bots; reward = final
+rank with light territory/production shaping that fades out.
 
 ## Arena ratings (2026-10-17, replaced multiplayer Elo)
 

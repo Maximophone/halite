@@ -50,7 +50,8 @@ python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot
 | `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
 | `tools/` | Bot-building tools: `eval_bot.py` (win rates vs an opponent pool), `solo_bench.py` (expansion speed), `trace_game.py` (one game's economy over time) |
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
-| `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha`, `apex_beta`, `apex_gamma` (strongest), `hal_lite` and `dex_bot` (strongest; ports of David Ma's and Declan Groves' 2016 bots) |
+| `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha`, `apex_beta`, `apex_gamma` (strongest), `hal_lite` and `dex_bot` (strongest; ports of David Ma's and Declan Groves' 2016 bots), `neuro_alpha` (a neural network trained to imitate DexBot) |
+| `rl/` | Training for the neural bot (Rust with the candle crate, Apple GPU via Metal) and a live training dashboard |
 
 ## Options
 
@@ -197,6 +198,31 @@ weakest point of the border, avoid merging past 255, and use overkill when fight
 The bots were first written in Python; `improved_bot` and `predator_bot` are move-for-move ports
 (identical replays on the same maps), and Rust versions run a game about 2.2x faster, so the
 Python kit was retired. It is still in git history.
+
+## Training the neural bot
+
+`neuro_alpha` is a convolutional network that reads the whole map and picks a move for every
+site; it was trained to imitate DexBot from 1,200 games. The bot itself uses no crates (the
+weights are compiled in); training lives in `rl/` and needs a Mac with Apple silicon (candle on
+Metal, with hand-written GPU kernels in `rl/src/metal_conv.rs`).
+
+```bash
+(cd engine && cargo build --release) && (cd starter-kit/rust && cargo build --release)
+python3 rl/gen_data.py --games 1200 --seed 1                        # teacher games
+python3 rl/gen_data.py --games 100 --seed 2 --out rl/data/val       # validation games
+(cd rl && cargo build --release)
+./rl/target/release/halite-rl train --data rl/data/train --val rl/data/val --run rl/runs/bc --steps 20000
+python3 rl/dashboard.py                                             # live curves on http://localhost:8090
+```
+
+Try a checkpoint without rebuilding the bot:
+
+```bash
+python3 tools/eval_bot.py "NEURO_WEIGHTS=rl/runs/bc/best.hnn starter-kit/rust/target/release/neuro_alpha"
+```
+
+`docs/neuro-alpha-infographic.html` explains the architecture and why it is a CNN rather than a
+transformer.
 
 ## The Rust engine
 

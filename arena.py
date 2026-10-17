@@ -13,8 +13,9 @@ Usage:
     python3 arena.py
     python3 arena.py --workers 8 --port 8000 --bot "RustBot=./target/release/mybot"
 
-Data lives in arena/ (games.jsonl and replays/); ratings are rebuilt from
-games.jsonl on start, so stopping and restarting loses nothing.
+Data lives in arena/: games.jsonl (the latest --history games), state.json
+(ratings and totals for everything older) and replays/. Ratings are rebuilt
+from both on start, so stopping and restarting loses nothing.
 """
 
 import argparse
@@ -37,8 +38,16 @@ BOT_GLOB = os.path.join(HERE, "starter-kit", "python", "*Bot.py")
 
 START_RATING = 1500.0
 K_FACTOR = 32.0
+COMPACT_SLACK = 1000      # games past --history before games.jsonl is rewritten
 # Player counts and how often each is picked.
 PLAYER_COUNTS = [(2, 0.5), (3, 0.1), (4, 0.3), (6, 0.1)]
+
+
+def _write_atomic(path, text):
+    tmp = path + ".tmp"
+    with open(tmp, "w") as f:
+        f.write(text)
+    os.replace(tmp, path)
 
 
 # ---------------------------------------------------------------------------
@@ -68,21 +77,52 @@ def play(spec):
 # Arena state
 # ---------------------------------------------------------------------------
 
+def apply_game(game, ratings, stats):
+    """Update per-bot totals and ratings with one finished game."""
+    players = game["players"]
+    n = len(players)
+    for p in players:
+        s = stats.setdefault(p["bot"], {"games": 0, "wins": 0, "score": 0.0, "errors": 0})
+        s["games"] += 1
+        s["wins"] += p["rank"] == 1
+        s["score"] += (n - p["rank"]) / (n - 1) if n > 1 else 1.0
+        s["errors"] += "(" in p["status"]
+        ratings.setdefault(p["bot"], START_RATING)
+    # Multiplayer Elo: every pair of different bots is a duel won by the
+    # better-ranked one, with K split over the n - 1 opponents.
+    delta = {}
+    for a in players:
+        for b in players:
+            if a["rank"] >= b["rank"] or a["bot"] == b["bot"]:
+                continue
+            ra, rb = ratings[a["bot"]], ratings[b["bot"]]
+            expected = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
+            change = K_FACTOR * (1.0 - expected) / (n - 1)
+            delta[a["bot"]] = delta.get(a["bot"], 0.0) + change
+            delta[b["bot"]] = delta.get(b["bot"], 0.0) - change
+    for bot, d in delta.items():
+        ratings[bot] += d
+
+
 class Arena:
-    def __init__(self, data_dir, extra_bots, discover, keep):
+    def __init__(self, data_dir, extra_bots, discover, keep, history):
         self.data_dir = data_dir
         self.replay_dir = os.path.join(data_dir, "replays")
         self.games_path = os.path.join(data_dir, "games.jsonl")
+        self.state_path = os.path.join(data_dir, "state.json")
         os.makedirs(self.replay_dir, exist_ok=True)
         self.extra_bots = extra_bots
         self.discover = discover
         self.keep = keep
+        self.history = history
         self.lock = threading.Lock()
         self.paused = False
         self.running = {}            # game id -> spec
         self.games = []              # summaries, oldest first
         self.ratings = {}
         self.stats = {}
+        # Snapshot of everything older than the games kept in games.jsonl.
+        self.base = {"ratings": {}, "stats": {}, "games": 0, "max_id": 0, "last_fold_ids": []}
         self.started = time.time()
         self.played_since_start = 0
         self.next_id = 1
@@ -97,18 +137,27 @@ class Arena:
         return found
 
     def _load(self):
-        if not os.path.exists(self.games_path):
-            return
-        with open(self.games_path) as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        self._record(json.loads(line))
-                    except (ValueError, KeyError):
-                        pass  # a line cut short by a crash
-        if self.games:
-            self.next_id = max(g["id"] for g in self.games) + 1
+        if os.path.exists(self.state_path):
+            with open(self.state_path) as f:
+                self.base = json.load(f)
+        self.ratings = dict(self.base["ratings"])
+        self.stats = {b: dict(s) for b, s in self.base["stats"].items()}
+        # Games folded into the snapshot just before a crash may still be in
+        # games.jsonl: skip them.
+        folded = set(self.base["last_fold_ids"])
+        if os.path.exists(self.games_path):
+            with open(self.games_path) as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        try:
+                            game = json.loads(line)
+                            if game["id"] not in folded:
+                                self._record(game)
+                        except (ValueError, KeyError):
+                            pass  # a line cut short by a crash
+        self.next_id = max([self.base["max_id"]] + [g["id"] for g in self.games]) + 1
+        self._compact(force=True)  # in case --history is lower than last time
         self._prune()  # in case --keep is lower than last time
         # Replays of games cut off by the last shutdown were never recorded.
         known = {g["replay"] for g in self.games if g.get("replay")}
@@ -119,29 +168,7 @@ class Arena:
     def _record(self, game):
         """Add a finished game to the in-memory state and update ratings."""
         self.games.append(game)
-        players = game["players"]
-        n = len(players)
-        for p in players:
-            s = self.stats.setdefault(p["bot"], {"games": 0, "wins": 0, "score": 0.0, "errors": 0})
-            s["games"] += 1
-            s["wins"] += p["rank"] == 1
-            s["score"] += (n - p["rank"]) / (n - 1) if n > 1 else 1.0
-            s["errors"] += "(" in p["status"]
-            self.ratings.setdefault(p["bot"], START_RATING)
-        # Multiplayer Elo: every pair of different bots is a duel won by the
-        # better-ranked one, with K split over the n - 1 opponents.
-        delta = {}
-        for a in players:
-            for b in players:
-                if a["rank"] >= b["rank"] or a["bot"] == b["bot"]:
-                    continue
-                ra, rb = self.ratings[a["bot"]], self.ratings[b["bot"]]
-                expected = 1.0 / (1.0 + 10 ** ((rb - ra) / 400.0))
-                change = K_FACTOR * (1.0 - expected) / (n - 1)
-                delta[a["bot"]] = delta.get(a["bot"], 0.0) + change
-                delta[b["bot"]] = delta.get(b["bot"], 0.0) - change
-        for bot, d in delta.items():
-            self.ratings[bot] += d
+        apply_game(game, self.ratings, self.stats)
 
     def finish(self, game):
         with self.lock:
@@ -151,6 +178,36 @@ class Arena:
             self._record(game)
             self.played_since_start += 1
             self._prune()
+            self._compact()
+
+    def _compact(self, force=False):
+        """
+        Fold the oldest games into state.json once games.jsonl holds more than
+        `history` games (plus some slack, so the file is not rewritten after
+        every game). Ratings stay exact: the snapshot is the state after the
+        folded games, and the kept games are replayed on top of it.
+        """
+        extra = len(self.games) - self.history
+        if extra <= 0 or (not force and extra < COMPACT_SLACK):
+            return
+        fold, keep = self.games[:extra], self.games[extra:]
+        base = self.base
+        for g in fold:
+            apply_game(g, base["ratings"], base["stats"])
+            if g.get("replay"):
+                try:
+                    os.remove(os.path.join(self.replay_dir, g["replay"]))
+                except OSError:
+                    pass
+        base["games"] += len(fold)
+        base["max_id"] = max([base["max_id"]] + [g["id"] for g in fold])
+        base["last_fold_ids"] = [g["id"] for g in fold]
+        # Snapshot first, then the shorter history. A crash in between leaves
+        # folded games in games.jsonl, and _load skips them by id.
+        _write_atomic(self.state_path, json.dumps(base, separators=(",", ":")))
+        _write_atomic(self.games_path, "".join(
+            json.dumps(g, separators=(",", ":")) + "\n" for g in keep))
+        self.games = keep
 
     def _prune(self):
         with_replay = [g for g in self.games if g.get("replay")]
@@ -195,7 +252,8 @@ class Arena:
             elapsed = max(1.0, time.time() - self.started)
             return {
                 "paused": self.paused,
-                "total_games": len(self.games),
+                "total_games": self.base["games"] + len(self.games),
+                "listed_games": len(self.games),
                 "matching_games": len(games),
                 "games_per_min": round(self.played_since_start * 60.0 / elapsed, 1),
                 "known_bots": sorted(self.bots()),
@@ -275,6 +333,8 @@ def main():
                     help="add a bot that is not in starter-kit/python (repeatable)")
     ap.add_argument("--no-discover", action="store_true", help="only use --bot entries")
     ap.add_argument("--keep", type=int, default=200, help="replays kept on disk (older ones are deleted)")
+    ap.add_argument("--history", type=int, default=10000,
+                    help="games listed and kept in games.jsonl; older ones only live on in the ratings")
     ap.add_argument("--data", default=os.path.join(HERE, "arena"), help="where games and replays are stored")
     ap.add_argument("--seed", type=int, help="seed for matchmaking")
     args = ap.parse_args()
@@ -286,7 +346,7 @@ def main():
             ap.error("--bot expects NAME=COMMAND, got %r" % entry)
         extra[name.strip()] = cmd.strip()
 
-    arena = Arena(args.data, extra, not args.no_discover, args.keep)
+    arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history)
     if len(arena.bots()) < 2:
         print("Need at least 2 bots, found: %s" % (", ".join(arena.bots()) or "none"))
         sys.exit(1)

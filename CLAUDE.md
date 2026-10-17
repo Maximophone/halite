@@ -209,7 +209,8 @@ Python was 11-9.
 
 ## Apex line (Maxime: "build a bot that crushes the current ones", 2026-10-17)
 
-`apex_alpha.rs` is a frozen prototype; later versions get new names (ApexBeta, ...) so the arena
+Before working on bots, read `docs/building-strong-bots.md` (lessons and workflow, written for
+the next AI). `apex_alpha.rs` is a frozen prototype; later versions get new names (ApexBeta, ...) so the arena
 rates each separately. Every constant reads an `APEX_*` env var (defaults in `Params::load`),
 which is how they were tuned. What mattered, measured against PredatorBot:
 - Gathering (plan, per frontier target, the turns needed to bring enough strength from up to 8

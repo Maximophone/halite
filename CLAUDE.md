@@ -31,6 +31,8 @@ Sources used for the rules:
 | `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt from it on start, stdlib HTTP server for `arena.html`, `/api/state`, `/replays/*.hlt`, pause/resume |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt` |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
+| `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
+| `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
 | `starter-kit/python/hlt.py`, `networking.py` | Original 2016 API (camelCase: `getInit`, `sendInit`, `getFrame`, `sendFrame`, `GameMap.getSite`, `Location`, `Move`, `STILL..WEST`) |
 | `starter-kit/python/MyBot.py` | User's bot, starts as a random bot |
 | `starter-kit/python/RandomBot.py` | Original sample bot |
@@ -38,11 +40,13 @@ Sources used for the rules:
 | `starter-kit/python/PredatorBot.py` | Strongest bot so far (see below) |
 | `starter-kit/rust/` | Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`), `src/bin/my_bot.rs` random template, `src/bin/predator_bot.rs` exact port of PredatorBot (name `RustPredatorBot`) |
 
-Generated, git-ignored: `starter-kit/rust/target/` (cargo build output), `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
+Generated, git-ignored: `engine/target/`, `starter-kit/rust/target/` (cargo build output), `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
 `examples/` (a sample game; regenerate with the command in README).
 
-Constraints: **Python 3 standard library only** (tested on 3.10 on the Mac and 3.13 in the
-cloud). No packages, no build step. Keep it that way unless asked.
+Constraints: **Python 3 standard library only** (tested on 3.10 and 3.13). No packages, no
+build step. Keep it that way unless asked. Exception: Rust code (`engine/`, `starter-kit/rust/`),
+which Maxime asked for; it uses only the Rust standard library (no crates) and is optional:
+everything falls back to Python when it is not built.
 
 ## Rules as implemented (`GameState.step`)
 
@@ -118,6 +122,7 @@ The viewer computes territory/production/strength curves from frames. A 40x40, 4
 python3 test_rules.py                                   # 10 rule checks, must all pass
 python3 halite.py -d "30 30" -s 7 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
 python3 tournament.py -n 6 -s 1 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
+python3 check_engine.py                                 # Rust engine still identical (build it first)
 ```
 Already verified: crash and timeout ejection (a bot sleeping 2 s on turn 20, a bot exiting on
 turn 2), 6-player games, viewer renders with no console errors (checked with a headless
@@ -135,6 +140,42 @@ Lessons from tuning: a fight value that dwarfs neutrals made the whole territory
 lane of capped pieces and stop expanding (lost 7/10); letting border pieces turn back toward fights
 did the same. Results: about 87% vs ImprovedBot in 1v1, 11/12 in 4-player FFA vs 3 ImprovedBots.
 
+## Rust engine (`engine/`, asked for once Rust bots made the Python engine the bottleneck)
+
+Build: `cd engine && cargo build --release` (cargo may be in `~/.cargo/bin`). `halite.py` is the
+reference; the Rust engine must play identical games, so **any rule, map, protocol or output change
+goes into both**, then run `python3 check_engine.py` (about 90 s; `--quick` about 30 s).
+
+How identity is achieved:
+- Maps: `PyRandom` reproduces `random.Random(int)` exactly (init_by_array on the 32-bit words of
+  abs(seed), seeds of any size), `random()` (53-bit), `_randbelow` via getrandbits rejection,
+  `choice`, `shuffle` (3.10 to 3.13 share the algorithm). The noise is the same float operations in
+  the same order (no FMA in Rust by default), `powf` calls the same libm `pow`, `round` is
+  `round_ties_even` (Python rounds half to even). Checked on 6,390 maps.
+- Rules: `step` is a flat-array port; it keeps the Python quirks (zero-strength pieces on a neutral
+  site create a neutral_damage entry and take neutral damage; damage is counted once per target
+  slot, so 1- and 2-wide maps double count, as in Python).
+- Protocol: Python reads bot stdout in text mode, so the Rust reader splits on universal newlines
+  (`\n`, `\r\n`, lone `\r`, waiting for the byte after `\r`), a UTF-8 error ends the stream,
+  `strip()` uses Python's whitespace set, `int()` accepts `+7`, `07`, `1_0`. Each bot's 1 s turn
+  timeout starts when the engine starts waiting for it, as in Python. A bot whose pipe is closed is
+  still read once that turn (and keeps its moves if a line was queued), as in Python.
+- Output: same console lines, `-q` JSON with Python's default separators, replay JSON compact with
+  ensure_ascii escaping, replay name from local time via libc `localtime_r` (FFI, no crate).
+  viewer.html is found by walking up from the binary (the repo root).
+- Known difference: Python's `int()` also takes non-ASCII digits (`١`); Rust ignores such a token.
+
+`check_engine.py` covers maps (sizes including 0, negative, 1x1, default random size; seeds 0,
+negative, above 2^64), 20,017 random or edge-case steps via `--step-test`, 72 games (1 to 6
+players, PredatorBot Python and Rust, ImprovedBot, `-q`, `--no-html`, `--turns`) and 10 ejection
+games with a raw-protocol test bot (crash, timeout, stdout closed, stdin closed with a queued
+answer, init crash, init close, missing binary, garbage moves with `\r\n` and a Unicode name).
+Not covered: the 15 s init timeout (too slow to test; same code path as the turn timeout).
+
+`halite.play_game(..., engine="auto")` runs the Rust binary with `-q` (or `run_game` when not
+built); `tournament.py` and `arena.py` use it and take `--engine auto|python|rust`. Both CLIs got
+`--log-dir` and `--no-logs` (the arena runs games with no logs, as before).
+
 ## Performance (measured, for the "rewrite in Rust?" question)
 
 50x50, 4 players, 412 turns: 2.7 s total, engine `step` 0.77 s (28%), the rest is bots and pipes.
@@ -148,6 +189,12 @@ so about 2.2x faster per game. The games are identical (same turns, same death t
 the port makes the same moves, which makes this a clean comparison. With Rust bots, waiting on
 bots is only ~0.3 s of a game; engine `step` plus serializing and parsing is the rest, so the
 engine is now the bottleneck and the next lever if games must go faster.
+
+Rust engine (measured 2026-10-17, load average about 20 from another arena): 50x50, 4 Rust
+PredatorBots, seeds 1-3, median of 6: Python engine 2.29 s with .hlt + .html (1.94 s .hlt only,
+1.54 s no replay), Rust engine 0.41 s (0.39 s, 0.36 s), so about 5.5x. The Rust engine time is now
+mostly the bots themselves. Arena, 5 workers, 3 Rust PredatorBots, 90 s: 252 games/min on the
+Python engine, 1,370 games/min on the Rust engine.
 
 Rust port fidelity: it reproduces Python's tie-breaking (heap ordered like the tuple
 `(-value, site, dir, fight)`, `max()` over `(value, dir, site)` tuples, stable sorts, dict

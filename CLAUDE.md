@@ -285,6 +285,22 @@ Lessons (all at 1000 games; one standard error is 1.6 points):
   strength sits in the interior, two thirds of it in transit: routing is the economy lever left.
 - Experiments are the main time cost; the arena competes for CPU, pause it during sweeps.
 
+## Economy routing: tried after ApexGamma, all negative (2026-10-17)
+
+Solo games, turns 40-120: production lost to moving is 18.8% from interior moves, 3.8% from
+border captures, 2.5% other; pieces under 60 strength make 41% of interior moves (35% of that
+loss); idle border pieces that could capture something hold only 5% of border strength.
+Mechanisms tried on the solo benchmark (80 maps, Gamma = 930.7 / 2328 at turns 100 / 150):
+- Distance-aware waiting (move threshold grows per step from the border): worse, monotonically
+  (-1% to -7% at turn 150). Faster delivery beats saving production.
+- Cheaper paths (among near-equal field steps, land on the poorest site): flat.
+- Moving earlier (wait 2, min move 8 or 10): flat to -2%.
+- Payback ranking of targets, 1 / (w * turns to gather + strength / value): worse at every w
+  (-1.7% to -7%). The empirical value / turns^0.25 stays.
+Conclusion: routing sits at a broad optimum; the ~19% is the price of fast delivery. The next
+economy gain needs planning (e.g. a searched opening), not routing tweaks. The variant file
+(apex_delta.rs) was dropped since its defaults equalled ApexGamma.
+
 ## Ideas not done yet (only if Maxime asks)
 
 - Starter kits for more languages (only Rust now; the protocol is plain text).

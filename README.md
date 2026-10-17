@@ -130,7 +130,7 @@ The rules follow the description in the creators' paper (Spector and Truell,
 *The Design and Implementation of Modern Online Programming Competitions*, 2017) and the
 original starter kit protocol. Two parts are re-implementations rather than copies:
 
-- **Map generator:** smooth noise mirrored into one tile per player, so starts are fair.
+- **Map generator:** smooth noise mirrored into one tile per player, with each start at its tile centre, so starts are fair and evenly spaced.
   Maps look and play similarly but are not byte-identical to the original generator.
   The map may shrink slightly so the tiles divide it evenly (e.g. 40x40 with 6 players is 39x40).
 - **Edge cases** such as several zero-strength pieces of different players on one site

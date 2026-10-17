@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Rule checks for the engine. Run: python3 test_rules.py"""
 
-from halite import GameState, STILL, NORTH, EAST, SOUTH, WEST
+from halite import GameState, STILL, NORTH, EAST, SOUTH, WEST, MAX_PLAYERS, _LAYOUTS, generate_map
 
 
 def make(w, h, cells, prod=0):
@@ -80,6 +80,26 @@ def test_wraparound():
 def test_serialize_roundtrip_shape():
     g = make(3, 2, {(0, 0): (1, 9), (1, 0): (1, 8)})
     assert g.serialize().split() == ["2", "1", "4", "0", "9", "8", "0", "0", "0", "0"]
+
+
+def test_starts_evenly_spaced():
+    # On the torus, every start's nearest rival is about one tile away.
+    import random
+    for n in range(2, MAX_PLAYERS + 1):
+        for w, h in [(20, 20), (30, 30), (25, 40), (50, 50)]:
+            for seed in range(5):
+                W, H, _, _, starts = generate_map(w, h, n, random.Random(seed))
+                rows, cols = _LAYOUTS[n]
+                if w < h and cols > rows:
+                    rows, cols = cols, rows
+                tile = min(W // cols if cols > 1 else W, H // rows if rows > 1 else H)
+
+                def dist(a, b):
+                    dx, dy = abs(a[0] - b[0]), abs(a[1] - b[1])
+                    return min(dx, W - dx) + min(dy, H - dy)
+
+                closest = min(dist(a, b) for a in starts for b in starts if a != b)
+                assert closest >= tile - 1, (n, w, h, seed, starts, closest)
 
 
 if __name__ == "__main__":

@@ -104,9 +104,9 @@ def generate_map(width, height, num_players, rng):
             s = 0.45 * n_str[y][x] + 0.55 * p
             tile_str[y][x] = int(round(min(MAX_STRENGTH, s ** 2.0 * 280 + 5)))
 
-    # Starting position inside the tile, away from tile edges.
-    sx = rng.randint(tw // 4, max(tw // 4, (3 * tw) // 4 - 1))
-    sy = rng.randint(th // 4, max(th // 4, (3 * th) // 4 - 1))
+    # Start at the tile centre. Tiles are flipped, so an off-centre start would
+    # put two players close together across a tile edge (or the wrap seam).
+    sx, sy = (tw - 1) // 2, (th - 1) // 2
 
     production = [[0] * W for _ in range(H)]
     strength = [[0] * W for _ in range(H)]

@@ -73,7 +73,9 @@ Not the original algorithm (that was not reproduced). Approach: one tile of mult
 value noise (`_smooth_noise`), mirrored across a grid of tiles, one per player
 (`_LAYOUTS`: 2 -> 1x2, 3 -> 1x3, 4 -> 2x2, 5 -> 1x5, 6 -> 2x3; transposed for tall maps).
 Odd-indexed tile rows/columns are flipped so edges join smoothly; every player's start is the
-mirror image of the others. Width and height are rounded down to multiples of the tile size
+mirror image of the others. Starts sit at the tile centre: an earlier random offset meant flipped
+neighbours could spawn 7 sites apart across the wrap seam on a 30x30 (a 9-turn rush game).
+`test_starts_evenly_spaced` checks the nearest rival is at least one tile size minus 1 away. Width and height are rounded down to multiples of the tile size
 (e.g. 40x40 with 6 players becomes 39x40, 25x25 with 2 players becomes 24x25).
 
 Current tuning (changed once after playtesting):
@@ -109,7 +111,7 @@ The viewer computes territory/production/strength curves from frames. A 40x40, 4
 ## How to check changes
 
 ```bash
-python3 test_rules.py                                   # 9 rule checks, must all pass
+python3 test_rules.py                                   # 10 rule checks, must all pass
 python3 halite.py -d "30 30" -s 7 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
 python3 tournament.py -n 6 -s 1 "python3 starter-kit/python/ImprovedBot.py" "python3 starter-kit/python/RandomBot.py"
 ```

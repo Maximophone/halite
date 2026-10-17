@@ -5,7 +5,14 @@ before it, over one long session. This is what I wish someone had told me on the
 less about Halite tricks (those are at the end) and more about how to work: where the time went,
 where my judgement was wrong, and which habits turned hours of guessing into minutes of fixing.
 
-Read CLAUDE.md first for the rules, the protocol and the project layout.
+Read CLAUDE.md first for the rules, the protocol and the project layout. The tools named below
+are in `tools/`; each one explains itself with `-h`:
+
+- `tools/eval_bot.py`: a candidate against a fixed opponent pool, many games in parallel, fixed
+  seeds, win rate, average rank and errors per format.
+- `tools/solo_bench.py`: expansion speed with no opponent (production at turns 60, 100, 150).
+- `tools/trace_game.py`: one game, each player's territory, production and strength over time,
+  plus the replay to watch.
 
 ## The short version
 
@@ -145,7 +152,7 @@ What ApexAlpha still does badly (start here for ApexBeta):
 
 ## 6. A workflow that would have saved me half the time
 
-1. Build the parallel seeded harness and the solo benchmark first. Report errors.
+1. Use (or extend) `tools/eval_bot.py` and `tools/solo_bench.py` before writing bot logic.
 2. Get a baseline for every existing bot on both.
 3. Change one thing; build to a new versioned binary; run solo (for economy changes) or the
    harness (for combat changes) at 100 games.

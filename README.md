@@ -47,6 +47,7 @@ python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot
 | `arena.py`, `arena.html` | Endless tournament server with a leaderboard and a browsable list of every game |
 | `test_rules.py` | Checks for the combat, movement and production rules |
 | `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
+| `tools/` | Bot-building tools: `eval_bot.py` (win rates vs an opponent pool), `solo_bench.py` (expansion speed), `trace_game.py` (one game's economy over time) |
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
 | `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha` (strongest) |
 

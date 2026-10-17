@@ -35,7 +35,7 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (strongest, see "ApexGamma"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"). The arena names them by CamelCasing the file stem |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
 `getInit`, `getFrame`, ...). ImprovedBot and PredatorBot were ported move for move and checked
@@ -301,7 +301,20 @@ Mechanisms tried on the solo benchmark (80 maps, Gamma = 930.7 / 2328 at turns 1
   (-1.7% to -7%). The empirical value / turns^0.25 stays.
 Conclusion: routing sits at a broad optimum; the ~19% is the price of fast delivery. The next
 economy gain needs planning (e.g. a searched opening), not routing tweaks. The variant file
-(apex_delta.rs) was dropped since its defaults equalled ApexGamma.
+(an earlier apex_delta.rs) was dropped since its defaults equalled ApexGamma; the name now
+belongs to the tunnel bot (see "ApexDelta").
+
+## Combat look-ahead: tried after ApexGamma, negative (2026-10-17)
+
+Added to the combat score a heuristic of next turn: after the simulated turn, each surviving
+piece is exposed to the enemy strength within 2 steps (min of the two counts as lost), the enemy's
+pieces likewise to ours, and a site within reach of more strength than it holds counts as lost.
+Weight 0 reproduced ApexGamma frame for frame; worst turn 33 ms. vs ApexGamma (400 1v1 games,
+seed 51; control 52.0%): weight 0.1 47.0%, 0.25 45.0%, 0.5 44.5%, 1 37.5%; without the site term
+41.5%; site term x3 46.8%. Offence only (credit for the enemy's exposure, no penalty for ours):
+13.0% at 0.25, 4.2% at 1. Our-exposure penalty makes the bot passive, the credit alone makes it
+reckless; the exact one-turn score beats both. Looking further needs a real two-turn simulation
+(both sides re-planned), not a proxy. The variant file was dropped.
 
 ## Bots of 2016 players (Maxime asked to rebuild top players' bots from their write-ups, 2026-10-17)
 
@@ -348,6 +361,60 @@ Results (100 games per format, `--seed 5`): vs PredatorBot pool 100% 1v1, 95% ff
 vs ApexGamma 65% 1v1, 51% ffa4, 44% ffa6; vs HAL-lite 74% 1v1, 59% ffa4, 43% ffa6. DexBot is the
 strongest bot in the repo. The Apex line's gap is likely the non-aggression pact and the tunnel
 value (expansion toward distant rich land), both absent from Apex.
+
+## ApexDelta (2026-10-17)
+
+`apex_delta.rs` = ApexGamma plus DexBot's tunnel value (ablating it in DexBot took it from 68% to
+35.5% of 1v1s vs ApexGamma). For each frontier site i, T_i sums (prod_j^2 / s_j) / (D_ij + s_j /
+prod_j + 1) over the positive-strength neutrals j whose closest frontier site is i, D an all-pairs
+Dijkstra on the init map (DexBot's `all_pairs`, computed before the name reply: about 2.5 s on
+50x50 under heavy load, inside the 15 s init; computed after it, it timed out turn 1 on big maps).
+Knobs: `APEX_TUNNEL_FIELD` (default 1) adds w * k * T / 10 to each frontier target's value, which
+seeds the routing field and the gathering ranking; `APEX_TUNNEL` (default 0) adds w * k * T /
+(turns + 10) to the gathering score only; `APEX_CHESS` (default 0) is DexBot's chessboard outside
+the combat search (after that turn or once in contact, only x + y + turn even sites move; the
+others stay unless arrivals would overflow their site). k = 1.5 - 0.1 * enemies. All three at 0 =
+ApexGamma frame for frame (5 games, 2 to 6 players). The tunnel is computed only for our own seat:
+enemy predictions skip it (gathering never uses pieces within 5 of an enemy, so the predicted
+moves near us are unchanged).
+
+Scale: tval (prod / max(s, 15) + ...) is about 0.05-0.2 for neutrals, k * T up to about 1, so
+weight 1 makes the tunnel comparable with the local value on the best frontier sites.
+
+Solo benchmark (80 maps, turns 100 / 150; Gamma 930.7 / 2328.1): `APEX_TUNNEL` 0.25: 1010 / 2463,
+0.5: 1031 / 2497, 1: 1036 / 2524, 2: 1027 / 2513, 4: 1011 / 2491, 8: 989 / 2468;
+`APEX_TUNNEL_FIELD` 0.5: 1029 / 2490, 1: 1045 / 2524, 3: 1018 / 2497. Both together: no further
+gain (1028 / 2524). Chessboard (turn 40) costs 3% (1004 / 2467 on top of `APEX_TUNNEL=1`).
+
+Win rates, 200 games per format, `tools/eval_bot.py --suite 1v1,ffa4` (ffa4 = candidate, 2
+opponents, ImprovedBot). Machine at load 60-100 from other sessions throughout; 0 errors in every
+line below.
+
+| candidate | vs Gamma 1v1 / ffa4 | vs DexBot 1v1 / ffa4 |
+|---|---|---|
+| seed 12: ApexGamma | 49 / 37.5 | 36 / 16.5 |
+| seed 12: `APEX_TUNNEL=1` | 70 / 53 | 43.5 / 20 |
+| seed 12: `APEX_TUNNEL=0.5` / `2` | | 45 / 24, 47 / 25.5 |
+| seed 12: `APEX_TUNNEL_FIELD=1` (default) | 70.5 / 56 | 45 / 20.5 |
+| seed 12: `APEX_TUNNEL_FIELD=0.5` / `2` | | 49 / 23.5, 43.5 / 23 |
+| seed 12: both at 1 | 67.5 / 55 | 45.5 / 25 |
+| seed 12: default + `APEX_CHESS=40` | 75 / 58.5 | 47 / 23 |
+| seed 13 (fresh): ApexGamma | | 27.5 / 13.5 |
+| seed 13: default | 76.5 / 46.5 | 42.5 / 17.5 |
+| seed 13: default + `APEX_CHESS=40` | 77 / 46 | 44.5 / 16 |
+| seed 13: chess only (`APEX_TUNNEL_FIELD=0 APEX_CHESS=40`) | | 33 / 16.5 |
+
+Verdict:
+- The tunnel value is a large, real gain: +8% production at turn 150 alone, about 3 in 4 1v1s vs
+  ApexGamma, and vs DexBot 1v1 from 27.5-36% to 42.5-45%. All weights from 0.5 to 2 and both
+  placements (gathering score or target value) are within noise of each other.
+- The chessboard is flat (+2 points 1v1, -0.5 to -1.5 ffa4 on fresh seeds) and costs 3% economy,
+  so it is off. DexBot's chessboard gain probably lives in its own crude combat, which Apex's
+  search already does better.
+- DexBot still leads (about 56% of 1v1s vs ApexDelta) and ffa4 vs 2 DexBots barely moved (13.5 to
+  17.5% on fresh seeds). Next candidates: DexBot's non-aggression (flat in DexBot's own ablation,
+  but Apex breaks walls differently), and why ffa4 lags (trace a lost seed with
+  `tools/trace_game.py`).
 
 ## Arena ratings (2026-10-17, replaced multiplayer Elo)
 

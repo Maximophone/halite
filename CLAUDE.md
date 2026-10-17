@@ -304,6 +304,18 @@ economy gain needs planning (e.g. a searched opening), not routing tweaks. The v
 (an earlier apex_delta.rs) was dropped since its defaults equalled ApexGamma; the name now
 belongs to the tunnel bot (see "ApexDelta").
 
+## Combat look-ahead: tried after ApexGamma, negative (2026-10-17)
+
+Added to the combat score a heuristic of next turn: after the simulated turn, each surviving
+piece is exposed to the enemy strength within 2 steps (min of the two counts as lost), the enemy's
+pieces likewise to ours, and a site within reach of more strength than it holds counts as lost.
+Weight 0 reproduced ApexGamma frame for frame; worst turn 33 ms. vs ApexGamma (400 1v1 games,
+seed 51; control 52.0%): weight 0.1 47.0%, 0.25 45.0%, 0.5 44.5%, 1 37.5%; without the site term
+41.5%; site term x3 46.8%. Offence only (credit for the enemy's exposure, no penalty for ours):
+13.0% at 0.25, 4.2% at 1. Our-exposure penalty makes the bot passive, the credit alone makes it
+reckless; the exact one-turn score beats both. Looking further needs a real two-turn simulation
+(both sides re-planned), not a proxy. The variant file was dropped.
+
 ## Bots of 2016 players (Maxime asked to rebuild top players' bots from their write-ups, 2026-10-17)
 
 Sources found (both on GitHub, code plus write-up):

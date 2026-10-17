@@ -46,6 +46,7 @@ python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot
 | `tournament.py` | Runs many games and reports wins and average rank |
 | `arena.py`, `arena.html` | Endless tournament server with a leaderboard and a browsable list of every game |
 | `test_rules.py` | Checks for the combat, movement and production rules |
+| `test_ratings.py` | Checks for the arena's skill ratings |
 | `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
 | `tools/` | Bot-building tools: `eval_bot.py` (win rates vs an opponent pool), `solo_bench.py` (expansion speed), `trace_game.py` (one game's economy over time) |
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
@@ -83,8 +84,9 @@ Then open http://localhost:8000. The arena plays games forever, several at once 
 cores by default, `--workers N` to change), between every bot in `starter-kit/rust/src/bin/`
 that has been built: `improved_bot.rs` plays as ImprovedBot. A new bot joins on the next game once
 `cargo build --release` has built it; a bot whose file is removed stays on the leaderboard as
-"retired". The page shows an Elo-style leaderboard, the
-games in progress and every finished game; click a bot to filter, click Watch to open a replay.
+"retired". The page shows a leaderboard ranked by a skill rating with uncertainty (Weng-Lin
+Plackett-Luce, a TrueSkill-like model that rates whole finishing orders; the rating is mean - 3
+sigma, so a new bot climbs as its games accumulate), the games in progress and every finished game; click a bot to filter, click Watch to open a replay.
 Charts: every bot's rating over time, a head-to-head matrix (how often each bot finishes ahead of
 each other bot), and for a selected bot its toughest opponents, recent form (click a square to
 watch that game) and win rate by number of players and by map size.

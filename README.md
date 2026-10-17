@@ -62,6 +62,9 @@ Then open http://localhost:8000. The arena plays games forever, several at once 
 cores by default, `--workers N` to change), between every `starter-kit/python/*Bot.py`. A new bot
 file dropped in that folder joins on the next game. The page shows an Elo-style leaderboard, the
 games in progress and every finished game; click a bot to filter, click Watch to open a replay.
+Charts: every bot's rating over time, a head-to-head matrix (how often each bot finishes ahead of
+each other bot), and for a selected bot its toughest opponents, recent form (click a square to
+watch that game) and win rate by number of players and by map size.
 Games mix 2, 3, 4 and 6 players on random maps.
 
 Bots in other languages: anything that speaks the protocol works.

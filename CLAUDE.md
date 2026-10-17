@@ -28,13 +28,16 @@ Sources used for the rules:
 | `halite.py` | Everything engine-side: map generator, `GameState` (rules), `Bot` (subprocess + pipes), `run_game()`, replay writing, CLI |
 | `viewer.html` | Self-contained replay viewer (canvas, no dependencies). Contains the placeholder `<!--EMBEDDED_REPLAY-->` that `write_replay_html()` replaces with `<script>window.EMBEDDED_REPLAY = {...}</script>` |
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
+| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, multiplayer Elo rebuilt from it on start, stdlib HTTP server for `arena.html`, `/api/state`, `/replays/*.hlt`, pause/resume |
+| `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt` |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `starter-kit/python/hlt.py`, `networking.py` | Original 2016 API (camelCase: `getInit`, `sendInit`, `getFrame`, `sendFrame`, `GameMap.getSite`, `Location`, `Move`, `STILL..WEST`) |
 | `starter-kit/python/MyBot.py` | User's bot, starts as a random bot |
 | `starter-kit/python/RandomBot.py` | Original sample bot |
 | `starter-kit/python/ImprovedBot.py` | Heuristic sparring bot; beats RandomBot every time |
+| `starter-kit/python/PredatorBot.py` | Strongest bot so far (see below) |
 
-Generated, git-ignored: `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
+Generated, git-ignored: `arena/` (arena games and replays), `replays/` (`.hlt` + `.html` per game), `logs/bot-N.log` (bot stderr),
 `examples/` (a sample game; regenerate with the command in README).
 
 Constraints: **Python 3 standard library only** (tested on 3.10 on the Mac and 3.13 in the
@@ -119,12 +122,31 @@ Already verified: crash and timeout ejection (a bot sleeping 2 s on turn 20, a b
 turn 2), 6-player games, viewer renders with no console errors (checked with a headless
 Chromium screenshot). When you change rules, add a case to `test_rules.py`.
 
+## PredatorBot (Maxime asked for "a predator": aggressive, combat-first)
+
+Max-value field propagated inward from the frontier with Dijkstra (`DECAY` per step); interior
+pieces follow it once grown (`WAIT` x production, `WAIT_FRONT` if the source is a fight). Fights
+(enemy site, or 0-strength neutral next to an enemy) score `FIGHT_VALUE + heat/255`, where heat is
+the enemy strength in overkill reach. Border pieces handle their own neighbours first (fight, else
+best capturable neutral, else regroup if the field says a much better frontier exists, else wait or
+join a pack). Cap control cancels or detours arrivals past 255 + `CAP_SLACK`.
+Lessons from tuning: a fight value that dwarfs neutrals made the whole territory funnel into one
+lane of capped pieces and stop expanding (lost 7/10); letting border pieces turn back toward fights
+did the same. Results: about 87% vs ImprovedBot in 1v1, 11/12 in 4-player FFA vs 3 ImprovedBots.
+
+## Performance (measured, for the "rewrite in Rust?" question)
+
+50x50, 4 players, 412 turns: 2.7 s total, engine `step` 0.77 s (28%), the rest is bots and pipes.
+A faster engine alone saves at most ~30%; parallel games (arena) scale with cores (about 280
+games/min on the 10-core Mac with 5 workers). Bots in compiled languages are the bigger lever;
+they plug in through `--bot NAME=COMMAND`.
+
 ## Ideas not done yet (only if Maxime asks)
 
 - Starter kits for other languages (the protocol is plain text, so easy to add).
 - A stronger reference bot (border-routing of interior strength, overkill tactics,
   non-aggression pact from the late 2016 meta: let others attack first).
-- TrueSkill ratings in `tournament.py` like the original leaderboard.
+- TrueSkill ratings (the arena uses multiplayer Elo).
 - Viewer: zoom, per-player highlighting, loading the original 2016 `.hlt` replay format.
 - Push to GitHub: no remote is configured. Ask whether public or private before creating one.
 

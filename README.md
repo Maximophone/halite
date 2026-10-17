@@ -33,8 +33,9 @@ To generate a sample game to look at: `python3 halite.py -d "40 40" -s 2016 -o e
 | `halite.py` | Game environment: map generator, rules, bot protocol, replays |
 | `viewer.html` | Replay viewer (play, scrub, pan the wrap-around map, stats charts) |
 | `tournament.py` | Runs many games and reports wins and average rank |
+| `arena.py`, `arena.html` | Endless tournament server with a leaderboard and a browsable list of every game |
 | `test_rules.py` | Checks for the combat, movement and production rules |
-| `starter-kit/python/` | `hlt.py` and `networking.py` (original API), `MyBot.py`, `RandomBot.py`, `ImprovedBot.py` |
+| `starter-kit/python/` | `hlt.py` and `networking.py` (original API), `MyBot.py`, `RandomBot.py`, `ImprovedBot.py`, `PredatorBot.py` |
 
 ## Options
 
@@ -50,6 +51,28 @@ python3 halite.py [-d "W H"] [-s SEED] [-t] [-q] [-o DIR] [--no-replay] [--no-ht
 python3 tournament.py -n 20 "python3 starter-kit/python/MyBot.py" "python3 starter-kit/python/ImprovedBot.py"
 python3 tournament.py -n 20 --players 4 "python3 a.py" "python3 b.py" "python3 c.py" "python3 d.py" "python3 e.py"
 ```
+
+## The arena
+
+```bash
+python3 arena.py
+```
+
+Then open http://localhost:8000. The arena plays games forever, several at once (half your CPU
+cores by default, `--workers N` to change), between every `starter-kit/python/*Bot.py`. A new bot
+file dropped in that folder joins on the next game. The page shows an Elo-style leaderboard, the
+games in progress and every finished game; click a bot to filter, click Watch to open a replay.
+Games mix 2, 3, 4 and 6 players on random maps.
+
+Bots in other languages: anything that speaks the protocol works.
+
+```bash
+python3 arena.py --bot "RustBot=./bots/rust/target/release/rustbot" --bot "CBot=./bots/c/cbot"
+```
+
+Everything is stored in `arena/` (`games.jsonl` plus replays). Stop with Ctrl-C and restart any
+time: ratings are rebuilt from `games.jsonl`. Only the latest 1000 replays are kept (`--keep N`).
+The server listens on this machine only unless you pass `--host 0.0.0.0`.
 
 ## The rules
 

@@ -63,6 +63,7 @@
 </head>
 <body>
 <header>
+  <a id="back" href="/" style="display:none;color:var(--muted);text-decoration:none">&larr; Arena</a>
   <h1><span>Halite</span> replay</h1>
   <div class="meta" id="meta">no replay loaded</div>
   <label class="file">Open .hlt<input type="file" id="file" accept=".hlt,.json"></label>
@@ -293,6 +294,15 @@
   document.addEventListener("drop", e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) readFile(f); });
 
   if (window.EMBEDDED_REPLAY) load(window.EMBEDDED_REPLAY);
+  // Arena mode: viewer.html?replay=/replays/x.hlt loads a replay from the server.
+  const src = new URLSearchParams(location.search).get("replay");
+  if (src && !window.EMBEDDED_REPLAY) {
+    $("back").style.display = "";
+    $("drop").querySelector("strong").textContent = "Loading replay...";
+    fetch(src).then(r => { if (!r.ok) throw new Error(r.status === 404 ? "replay was pruned or does not exist" : "HTTP " + r.status); return r.json(); })
+      .then(rep => { load(rep); play(true); })
+      .catch(err => { $("drop").querySelector("strong").textContent = "Could not load replay: " + err.message; });
+  }
 })();
 </script>
 </body>

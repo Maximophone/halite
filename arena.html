@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Halite Arena</title>
+<style>
+  :root {
+    --bg: #0b0e13;
+    --panel: #121720;
+    --line: #232b38;
+    --text: #e6e9ef;
+    --muted: #8a93a3;
+    --accent: #f2c14e;
+    --good: #5fd38d;
+    --bad: #e8576b;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.4 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+  header { display: flex; align-items: center; gap: 16px; flex-wrap: wrap; padding: 10px 16px;
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; background: var(--bg); z-index: 1; }
+  header h1 { font-size: 16px; margin: 0; letter-spacing: 0.08em; text-transform: uppercase; }
+  header h1 span { color: var(--accent); }
+  .meta { color: var(--muted); flex: 1; min-width: 200px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--good);
+    margin-right: 6px; vertical-align: 1px; }
+  .dot.off { background: var(--muted); }
+  button, select { background: var(--panel); color: var(--text); border: 1px solid var(--line);
+    border-radius: 6px; padding: 6px 12px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--muted); }
+  main { max-width: 1100px; margin: 0 auto; padding: 16px; display: grid; gap: 20px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; overflow: hidden; }
+  section > h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted);
+    margin: 0; padding: 12px 16px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; }
+  section > h2 .grow { flex: 1; }
+  .scroll { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { padding: 8px 16px; text-align: left; white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  tbody tr { border-top: 1px solid var(--line); }
+  #board tbody tr { cursor: pointer; }
+  #board tbody tr:hover, #games tbody tr:hover { background: #171d28; }
+  #board tbody tr.sel { background: #1b2230; }
+  .rank1 { color: var(--accent); font-weight: 600; }
+  .players { display: flex; gap: 6px; flex-wrap: wrap; white-space: normal; }
+  .chip { border: 1px solid var(--line); border-radius: 999px; padding: 1px 8px; font-size: 12px; color: var(--muted); }
+  .chip.win { border-color: var(--accent); color: var(--accent); }
+  .chip.err { border-color: var(--bad); color: var(--bad); }
+  .chip b { font-weight: 600; margin-right: 4px; }
+  a.watch { color: var(--accent); text-decoration: none; }
+  a.watch:hover { text-decoration: underline; }
+  .gone { color: var(--muted); font-size: 12px; }
+  .live { display: flex; gap: 8px; flex-wrap: wrap; padding: 12px 16px; }
+  .live .chip { color: var(--text); }
+  .empty { color: var(--muted); padding: 16px; }
+  .more { padding: 12px 16px; border-top: 1px solid var(--line); }
+  .err-n { color: var(--bad); }
+  @media (max-width: 640px) {
+    th, td { padding: 8px 10px; }
+    .hide-sm { display: none; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1><span>Halite</span> arena</h1>
+  <div class="meta" id="meta">connecting...</div>
+  <button id="pause">Pause</button>
+</header>
+<main>
+  <section>
+    <h2><span class="grow">Leaderboard</span><span id="boardHint">click a bot to filter games</span></h2>
+    <div class="scroll">
+      <table id="board">
+        <thead><tr>
+          <th>#</th><th>Bot</th><th class="num">Rating</th><th class="num">Games</th>
+          <th class="num">Wins</th><th class="num">Win %</th>
+          <th class="num hide-sm" title="0 = always last, 1 = always first">Placement</th>
+          <th class="num hide-sm" title="Crashes and timeouts">Errors</th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="empty" id="boardEmpty">No games finished yet.</div>
+  </section>
+
+  <section>
+    <h2>Playing now</h2>
+    <div class="live" id="live"></div>
+  </section>
+
+  <section>
+    <h2><span class="grow" id="gamesTitle">Games</span>
+      <select id="filter"><option value="">All bots</option></select></h2>
+    <div class="scroll">
+      <table id="games">
+        <thead><tr>
+          <th>Game</th><th>Finished</th><th>Result</th><th class="hide-sm">Map</th>
+          <th class="num hide-sm">Turns</th><th></th>
+        </tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+    <div class="empty" id="gamesEmpty">No games yet.</div>
+    <div class="more"><button id="more">Show more</button></div>
+  </section>
+</main>
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  let limit = 100, filter = "", paused = false, hovering = false, lastFilter = null;
+  try { filter = localStorage.getItem("arenaFilter") || ""; } catch (e) {}
+
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
+  function ago(t) {
+    const s = Math.max(0, Math.round(Date.now() / 1000 - t));
+    if (s < 60) return s + "s ago";
+    if (s < 3600) return Math.round(s / 60) + " min ago";
+    if (s < 86400) return Math.round(s / 3600) + " h ago";
+    return new Date(t * 1000).toLocaleDateString();
+  }
+
+  function setFilter(bot) {
+    filter = bot;
+    try { localStorage.setItem("arenaFilter", bot); } catch (e) {}
+    refresh();
+  }
+
+  function render(st) {
+    paused = st.paused;
+    $("pause").textContent = paused ? "Resume" : "Pause";
+    $("meta").innerHTML = `<span class="dot${paused ? " off" : ""}"></span>` +
+      `${paused ? "Paused" : "Running"} · ${st.total_games} games played · ${st.games_per_min} games/min this session`;
+
+    // Leaderboard
+    $("boardEmpty").style.display = st.leaderboard.length ? "none" : "";
+    $("board").querySelector("tbody").innerHTML = st.leaderboard.map((r, i) => `
+      <tr data-bot="${esc(r.bot)}" class="${r.bot === filter ? "sel" : ""}">
+        <td class="${i === 0 ? "rank1" : ""}">${i + 1}</td>
+        <td class="${i === 0 ? "rank1" : ""}">${esc(r.bot)}</td>
+        <td class="num">${r.rating}</td>
+        <td class="num">${r.games}</td>
+        <td class="num">${r.wins}</td>
+        <td class="num">${r.games ? Math.round(100 * r.wins / r.games) : 0}%</td>
+        <td class="num hide-sm">${r.score.toFixed(2)}</td>
+        <td class="num hide-sm ${r.errors ? "err-n" : ""}">${r.errors}</td>
+      </tr>`).join("");
+    $("board").querySelectorAll("tbody tr").forEach(tr =>
+      tr.onclick = () => setFilter(tr.dataset.bot === filter ? "" : tr.dataset.bot));
+
+    // Filter options
+    const sel = $("filter"), bots = [...new Set([...st.known_bots, ...st.leaderboard.map(r => r.bot)])].sort();
+    sel.innerHTML = `<option value="">All bots</option>` +
+      bots.map(b => `<option value="${esc(b)}"${b === filter ? " selected" : ""}>${esc(b)}</option>`).join("");
+
+    // Live games
+    $("live").innerHTML = st.running.length
+      ? st.running.map(g => `<span class="chip">#${g.id} ${g.bots.map(esc).join(" vs ")} · ${g.since}s</span>`).join("")
+      : `<span class="empty" style="padding:0">${paused ? "Paused: no new games are started." : "Starting games..."}</span>`;
+
+    // Games (left alone while the mouse is over the list, so rows do not move under it)
+    if (hovering && st.games.length && lastFilter === filter) return;
+    lastFilter = filter;
+    $("gamesTitle").textContent = filter ? `Games with ${filter} (${st.matching_games})` : `Games (${st.total_games})`;
+    $("gamesEmpty").style.display = st.games.length ? "none" : "";
+    $("games").querySelector("tbody").innerHTML = st.games.map(g => `
+      <tr>
+        <td>#${g.id}</td>
+        <td>${ago(g.time + g.duration)}</td>
+        <td><div class="players">${g.players.map(p => {
+          const err = p.status.includes("(");
+          return `<span class="chip${p.rank === 1 ? " win" : ""}${err ? " err" : ""}" title="${esc(p.status)}"><b>${p.rank}</b>${esc(p.bot)}</span>`;
+        }).join("")}</div></td>
+        <td class="hide-sm">${g.width}×${g.height}</td>
+        <td class="num hide-sm">${g.turns}</td>
+        <td>${g.replay ? `<a class="watch" href="/viewer.html?replay=/replays/${encodeURIComponent(g.replay)}">Watch</a>` : `<span class="gone">pruned</span>`}</td>
+      </tr>`).join("");
+    $("more").style.display = st.matching_games > st.games.length ? "" : "none";
+  }
+
+  async function refresh() {
+    try {
+      const r = await fetch(`/api/state?limit=${limit}&bot=${encodeURIComponent(filter)}`);
+      render(await r.json());
+    } catch (e) {
+      $("meta").innerHTML = `<span class="dot off"></span>Arena server is not reachable. Start it with: python3 arena.py`;
+    }
+  }
+
+  $("games").onmouseenter = () => hovering = true;
+  $("games").onmouseleave = () => { hovering = false; refresh(); };
+  $("filter").onchange = e => setFilter(e.target.value);
+  $("more").onclick = () => { limit += 100; refresh(); };
+  $("pause").onclick = async () => { await fetch(paused ? "/api/resume" : "/api/pause", {method: "POST"}); refresh(); };
+  refresh();
+  setInterval(refresh, 3000);
+})();
+</script>
+</body>
+</html>

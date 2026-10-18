@@ -152,6 +152,11 @@ def rate(skills, ranks):
 
 def apply_game(game, skills, stats):
     """Update per-bot totals and skills with one finished game."""
+    if game.get("reset_bot"):
+        bot = game["reset_bot"]
+        skills[bot] = [MU, SIGMA]
+        stats[bot] = {"games": 0, "wins": 0, "score": 0.0, "errors": 0}
+        return
     players = game["players"]
     n = len(players)
     for p in players:
@@ -272,6 +277,7 @@ class Arena:
             self.base["skill"] = {}
         self.skills = {b: list(v) for b, v in self.base["skill"].items()}
         self.stats = {b: dict(s) for b, s in self.base["stats"].items()}
+        self.resets = dict(self.base.get("resets", {}))
         # Games folded into the snapshot just before a crash may still be in
         # games.jsonl: skip them.
         folded = set(self.base["last_fold_ids"])
@@ -299,6 +305,9 @@ class Arena:
         """Add a finished game to the in-memory state and update skills."""
         self.games.append(game)
         apply_game(game, self.skills, self.stats)
+        if game.get("reset_bot"):
+            self.resets[game["reset_bot"]] = game["id"]
+            self.last_seen.pop(game["reset_bot"], None)
         for p in game["players"]:
             self.last_seen[p["bot"]] = max(self.last_seen.get(p["bot"], 0), game["id"])
 
@@ -311,6 +320,33 @@ class Arena:
             self.played_since_start += 1
             self._prune()
             self._compact()
+
+    def reset_bot(self, bot):
+        """Start a new release without changing any other bot's accumulated results.
+
+        The reset is an ordered journal event, so restarts and compaction replay
+        old results for opponents before resetting only the requested identity.
+        Historical entries for the previous release are hidden from the arena.
+        """
+        with self.lock:
+            if not self.paused or self.running:
+                raise ValueError("Pause the arena and let all running games finish first")
+            if bot not in self.stats and bot not in self.bots():
+                raise ValueError("Unknown bot: %s" % bot)
+            event = {"id": self.next_id, "time": time.time(), "reset_bot": bot,
+                     "players": [], "replay": None}
+            with open(self.games_path, "a") as f:
+                f.write(json.dumps(event, separators=(",", ":")) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            self.next_id += 1
+            self._record(event)
+            self._analytics = None
+            return event
+
+    def _visible_game(self, game):
+        return not game.get("reset_bot") and all(
+            game["id"] > self.resets.get(p["bot"], -1) for p in game["players"])
 
     def _compact(self, force=False):
         """
@@ -326,12 +362,14 @@ class Arena:
         base = self.base
         for g in fold:
             apply_game(g, base["skill"], base["stats"])
+            if g.get("reset_bot"):
+                base.setdefault("resets", {})[g["reset_bot"]] = g["id"]
             if g.get("replay"):
                 try:
                     os.remove(os.path.join(self.replay_dir, g["replay"]))
                 except OSError:
                     pass
-        base["games"] += len(fold)
+        base["games"] += sum(not g.get("reset_bot") for g in fold)
         base["max_id"] = max([base["max_id"]] + [g["id"] for g in fold])
         base["last_fold_ids"] = [g["id"] for g in fold]
         # Snapshot first, then the shorter history. A crash in between leaves
@@ -386,6 +424,7 @@ class Arena:
             games = list(self.games)
             skills = {b: list(v) for b, v in self.base["skill"].items()}
             stats = {b: dict(v) for b, v in self.base["stats"].items()}
+            resets = dict(self.resets)
             first = self.base["games"] + 1
         step = max(1, len(games) // 400)
         xs, curves = [], {}
@@ -393,8 +432,10 @@ class Arena:
         per = {}
         for k, g in enumerate(games):
             apply_game(g, skills, stats)
-            players = g["players"]
-            n = len(players)
+            if g.get("reset_bot"):
+                continue
+            players = [p for p in g["players"] if g["id"] > resets.get(p["bot"], -1)]
+            n = len(g["players"])
             for a in players:
                 for b in players:
                     if a["bot"] == b["bot"]:
@@ -423,6 +464,8 @@ class Arena:
             if k % step == 0 or k == len(games) - 1:
                 xs.append(first + k)
                 for bot, sk in skills.items():
+                    if g["id"] <= resets.get(bot, -1):
+                        continue
                     curves.setdefault(bot, [None] * (len(xs) - 1)).append(round(conservative(sk), 2))
                 for bot, c in curves.items():
                     if len(c) < len(xs):
@@ -448,14 +491,15 @@ class Arena:
                               "score": round(s["score"] / s["games"], 3) if s["games"] else 0})
             # Bots still playing first; retired ones keep their final rating below.
             board.sort(key=lambda r: (not r["active"], -r["rating"]))
-            games = self.games
+            games = [g for g in self.games if self._visible_game(g)]
+            listed_games = len(games)
             if bot_filter:
                 games = [g for g in games if any(p["bot"] == bot_filter for p in g["players"])]
             elapsed = max(1.0, time.time() - self.started)
             return {
                 "paused": self.paused,
-                "total_games": self.base["games"] + len(self.games),
-                "listed_games": len(self.games),
+                "total_games": self.base["games"] + sum(not g.get("reset_bot") for g in self.games),
+                "listed_games": listed_games,
                 "matching_games": len(games),
                 "games_per_min": round(self.played_since_start * 60.0 / elapsed, 1),
                 "known_bots": sorted(self.bots()),

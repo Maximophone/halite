@@ -11,3 +11,5 @@ rl/target/
 rl/data/
 rl/runs/
 rl/checkpoints/
+evolution/target/
+evolution/runs/

@@ -1,0 +1,82 @@
+{
+  "baseline": {
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "alpha03": {
+    "ALPHA": 0.03,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "alpha3": {
+    "ALPHA": 0.3,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "degrade05": {
+    "DEGRADE": 0.05,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  },
+  "degrade8": {
+    "DEGRADE": 0.8,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  },
+  "hold3": {
+    "HOLD": 3,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "hold12": {
+    "HOLD": 12,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "int15": {
+    "INT_MAX": 0.15,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "int75": {
+    "INT_MAX": 0.75,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "prod15": {
+    "PROD_POWER": 1.5,
+    "AUTO": 0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "no_strategic": {
+    "STRATEGIC": 0,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "no_walls": {
+    "WALLS": 0,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

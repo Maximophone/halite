@@ -1,0 +1,38 @@
+{
+  "hold9_d4": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "HOLD": 9,
+    "DEGRADE": 0.4,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  },
+  "hold9_d3": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "HOLD": 9,
+    "DEGRADE": 0.3,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  },
+  "hold8": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "HOLD": 8,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "hold10": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "HOLD": 10,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

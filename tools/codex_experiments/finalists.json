@@ -1,0 +1,23 @@
+{
+  "hold8": {
+    "AUTO": 1,
+    "DUEL_HOLD": 8,
+    "DUEL_INT_MAX": 0.45,
+    "PROD_POWER": 1.0,
+    "DEGRADE": 0.2
+  },
+  "supply75": {
+    "AUTO": 1,
+    "DUEL_HOLD": 7,
+    "DUEL_INT_MAX": 0.75,
+    "PROD_POWER": 1.0,
+    "DEGRADE": 0.2
+  },
+  "combined": {
+    "AUTO": 1,
+    "DUEL_HOLD": 8,
+    "DUEL_INT_MAX": 0.75,
+    "PROD_POWER": 1.0,
+    "DEGRADE": 0.2
+  }
+}

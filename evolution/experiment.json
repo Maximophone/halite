@@ -1,0 +1,57 @@
+{
+  "version": 1,
+  "bot": "EvoBot",
+  "checkpoint": "starter-kit/rust/weights/evo_bot.evo",
+  "sha256": "50d9608fa1c6dc29606db773e26e7bb650e85190360d2883db39dd360c9108a5",
+  "config": {
+    "seed": 42,
+    "population": 32,
+    "opponents": 3,
+    "maps": 2,
+    "sizes": [
+      12,
+      16,
+      20,
+      24
+    ],
+    "algorithm": "elitist mutation-only neuroevolution",
+    "fitness": "self-play wins (draw = 0.5), seat-paired",
+    "initialization": "independent random weights"
+  },
+  "generations": 240,
+  "champion_id": "g0239-007",
+  "training_games": 92160,
+  "fixed_evaluation_games": 4320,
+  "replay_games": 240,
+  "total_games": 96720,
+  "final_fixed_panel_score": 1,
+  "generation_evaluation_seconds": 87.43029000199931,
+  "benchmarks": {
+    "seed": 867,
+    "tool": "tools/eval_bot.py",
+    "used_for_training": false,
+    "results": [
+      {
+        "opponent": "improved_bot",
+        "format": "1v1",
+        "wins": 14,
+        "games": 60,
+        "errors": 0
+      },
+      {
+        "opponent": "predator_bot",
+        "format": "1v1",
+        "wins": 7,
+        "games": 60,
+        "errors": 0
+      },
+      {
+        "opponent": "3 x improved_bot",
+        "format": "ffa4",
+        "wins": 0,
+        "games": 12,
+        "errors": 0
+      }
+    ]
+  }
+}

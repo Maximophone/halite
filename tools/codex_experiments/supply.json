@@ -1,0 +1,39 @@
+{
+  "int75": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "INT_MAX": 0.75,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "int95": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "INT_MAX": 0.95,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "int75_hold9": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "INT_MAX": 0.75,
+    "HOLD": 9,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "int75_d4": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "INT_MAX": 0.75,
+    "DEGRADE": 0.4,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  }
+}

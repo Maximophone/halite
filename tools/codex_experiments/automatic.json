@@ -1,0 +1,29 @@
+{
+  "auto": {
+    "AUTO": 1,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "auto_hold5": {
+    "AUTO": 1,
+    "HOLD": 5,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "auto_no_strategic": {
+    "AUTO": 1,
+    "STRATEGIC": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "auto_int75": {
+    "AUTO": 1,
+    "INT_MAX": 0.75,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

@@ -29,6 +29,8 @@ TEACHERS = {
     # teacher binary -> the other bots that fill the remaining seats
     "dex_bot": ("apex_gamma", "hal_lite", "apex_beta", "predator_bot"),
     "erdman_bot": ("dex_bot", "apex_gamma", "apex_delta", "hal_lite"),
+    # expert iteration: the network plus its search; NEURO_WEIGHTS in the environment picks the net
+    "neuro_beta": ("dex_bot", "apex_gamma", "apex_delta", "erdman_bot", "hal_lite"),
 }
 
 

@@ -28,7 +28,7 @@ Sources used for the rules:
 | `halite.py` | Everything engine-side: map generator, `GameState` (rules), `Bot` (subprocess + pipes), `run_game()`, replay writing, CLI |
 | `viewer.html` | Self-contained replay viewer (canvas, no dependencies). Contains the placeholder `<!--EMBEDDED_REPLAY-->` that `write_replay_html()` replaces with `<script>window.EMBEDDED_REPLAY = {...}</script>` |
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
-| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, skill ratings (Weng-Lin Plackett-Luce, see "Arena ratings") rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000, per-bot `[mu, sigma]` under `skill`) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
+| `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, skill ratings (Weng-Lin Plackett-Luce, see "Arena ratings") lineups by Halite I's matchmaking (see "Arena matchmaking"), skill ratings rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000, per-bot `[mu, sigma]` under `skill`) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt`. Charts (hand-written SVG, no libraries) from `/api/analytics` every 10 s: rating curves, head-to-head matrix, selected-bot panel. Bot colours follow `order` (first appearance), dark palette validated with the dataviz skill against the `#121720` surface |
 | `tools/check_erdman.py` | Plays ErdmanBot and Travis Erdman's original `erdman_v26.py` (path to a clone of his repo, not vendored: no license) on the same seeds and checks the replays are identical |
 | `tools/combat_report.py` | Splits each player's strength losses in a replay into damage per opponent, neutrals and the cap |
@@ -684,6 +684,21 @@ Gaussian message passing. Ties (equal ranks) are supported, though the engine ne
   the estimates to settle); win and game totals are kept. First run on Maxime's data: ApexBeta
   37.8, ApexGamma 37.3 (only 3k games, still close), ApexAlpha 28.2, PredatorBot 23.5,
   ImprovedBot 18.9, RandomBot 13.9, MyBot 13.1.
+
+## Arena matchmaking (2026-10-18)
+
+Maxime: with many bots, uniform lineups waste games (ErdmanBot vs RandomBot). `halite_lineup` in
+`arena.py` copies what the Halite I servers did (`website/api/manager/ManagerAPI.php`, `task()`, in
+HaliteChallenge/Halite; the 2017 paper does not describe it). A seed bot: 50% weighted by sigma^2,
+25% one of the 3 bots that waited longest, else the one that waited longest (`last_seen`, the id
+of each bot's last started game). Opponents at random among the K bots closest in mu,
+K = ceil(max(2, pool / 6) / u^0.65). Halite used 5 / u^0.65 over ~1,500 bots, seed by `rand() *
+-sigma^2`, a 400-game cap on the first two rules, and in the finals a seed among the 15 top-400
+bots with the fewest games. Player counts and map sizes are unchanged (ours). `--matchmaking
+uniform` restores the old lineups (same RNG calls, so old `--seed` runs repeat).
+Simulated on the live ratings (14 bots, 20k lineups, sigmas frozen): 1v1s with a >95% favourite
+45% -> 11%, outcome entropy 0.43 -> 0.73 bits; seats per game 0.22 each before, now 0.32 for the
+two uncertain new bots, 0.14-0.16 for the bottom four, 0.19 for ErdmanBot (alone at the top).
 
 ## Ideas not done yet (only if Maxime asks)
 

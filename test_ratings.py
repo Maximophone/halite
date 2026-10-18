@@ -106,6 +106,33 @@ def test_snapshot_rebuild():
         shutil.rmtree(tmp)
 
 
+def test_halite_matchmaking():
+    """Near-equals meet more than distant bots, uncertain and idle bots get seats."""
+    import random
+    rng = random.Random(1)
+    names = ["B%02d" % i for i in range(15)]
+    skills = {b: (10.0 + 2 * i, 0.7) for i, b in enumerate(names)}
+    skills["B07"] = (MU, SIGMA)          # a new bot
+    meet = {}
+    seats = dict.fromkeys(names, 0)
+    last = {b: 0 for b in names}
+    for gid in range(1, 20001):
+        lineup = arena.halite_lineup(rng, names, 2, skills, last)
+        assert len(lineup) == 2 and lineup[0] != lineup[1]
+        for b in lineup:
+            seats[b] += 1
+            last[b] = gid
+        meet[frozenset(lineup)] = meet.get(frozenset(lineup), 0) + 1
+    near = meet.get(frozenset(["B13", "B14"]), 0)
+    far = meet.get(frozenset(["B00", "B14"]), 0)
+    assert near > 5 * far > 0, (near, far)
+    assert seats["B07"] == max(seats.values())
+    assert min(seats.values()) > 20000 * 2 / 15 / 3
+    # More seats than bots: everyone plays, some twice.
+    lineup = arena.halite_lineup(rng, names[:3], 6, skills, last)
+    assert len(lineup) == 6 and set(lineup) == set(names[:3])
+
+
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]
     for t in tests:

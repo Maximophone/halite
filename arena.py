@@ -75,6 +75,10 @@ ANALYTICS_TTL = 5.0       # seconds the chart data is reused while games finish
 COMPACT_SLACK = 1000      # games past --history before games.jsonl is rewritten
 # Player counts and how often each is picked.
 PLAYER_COUNTS = [(2, 0.5), (3, 0.1), (4, 0.3), (6, 0.1)]
+# Halite matchmaking (see halite_lineup): the opponents' window is
+# WINDOW_SHARE of the pool divided by u ** WINDOW_TAIL, u uniform.
+WINDOW_SHARE = 1 / 6
+WINDOW_TAIL = 0.65
 
 
 def _write_atomic(path, text):
@@ -173,8 +177,57 @@ def apply_game(game, skills, stats):
         skills[bot] = [mu + dmu, math.sqrt((sigma * sigma + TAU * TAU) * shrink)]
 
 
+def uniform_lineup(rng, names, n):
+    """n seats from `names`, everyone seated once before anyone twice."""
+    lineup = rng.sample(names, min(n, len(names)))
+    while len(lineup) < n:
+        lineup.append(rng.choice(names))
+    rng.shuffle(lineup)
+    return lineup
+
+
+def halite_lineup(rng, names, n, skills, last_seen):
+    """
+    n seats chosen the way the Halite I servers did (ManagerAPI.php, task()).
+    A seed bot first:
+      - half the time at random, weighted by sigma^2 (uncertain bots, such as
+        new ones, play more);
+      - a quarter of the time one of the 3 bots that waited longest;
+      - otherwise the bot that waited longest, so no bot is ever forgotten.
+    Then the others at random among the K bots whose mu is closest to the
+    seed's, K = WINDOW_SHARE * pool / u ** WINDOW_TAIL (u uniform). K is
+    usually small, so most games are between near-equals, but its long tail
+    still pairs distant bots now and then, which keeps the ratings of strong
+    and weak bots on one scale. Halite used 5 / u ** 0.65 on ~1,500 bots;
+    the window is scaled here since the pool is ~15.
+    `skills`: bot -> (mu, sigma), new bots get the prior. `last_seen`: bot ->
+    id of its last game (missing = never played).
+    """
+    def skill(b):
+        return skills.get(b, (MU, SIGMA))
+    stale = sorted(names, key=lambda b: (last_seen.get(b, 0), b))
+    r = rng.random()
+    if r < 0.5:
+        seed = rng.choices(names, [skill(b)[1] ** 2 for b in names])[0]
+    elif r < 0.75:
+        seed = rng.choice(stale[:3])
+    else:
+        seed = stale[0]
+    others = sorted((b for b in names if b != seed),
+                    key=lambda b: (abs(skill(b)[0] - skill(seed)[0]), b))
+    u = 1.0 - rng.random()  # in (0, 1]
+    k = math.ceil(max(2.0, WINDOW_SHARE * len(names)) / u ** WINDOW_TAIL)
+    window = others[:max(k, n - 1)]
+    lineup = [seed] + rng.sample(window, min(n - 1, len(window)))
+    while len(lineup) < n:  # fewer bots than seats
+        lineup.append(rng.choice(names))
+    rng.shuffle(lineup)
+    return lineup
+
+
 class Arena:
-    def __init__(self, data_dir, extra_bots, discover, keep, history, engine="python"):
+    def __init__(self, data_dir, extra_bots, discover, keep, history, engine="python",
+                 matchmaking="halite"):
         self.data_dir = data_dir
         self.replay_dir = os.path.join(data_dir, "replays")
         self.games_path = os.path.join(data_dir, "games.jsonl")
@@ -185,12 +238,14 @@ class Arena:
         self.keep = keep
         self.history = history
         self.engine = engine
+        self.matchmaking = matchmaking
         self.lock = threading.Lock()
         self.paused = False
         self.running = {}            # game id -> spec
         self.games = []              # summaries, oldest first
         self.skills = {}             # bot -> [mu, sigma]
         self.stats = {}
+        self.last_seen = {}          # bot -> id of its last game, started or finished
         # Snapshot of everything older than the games kept in games.jsonl.
         self.base = {"skill": {}, "stats": {}, "games": 0, "max_id": 0, "last_fold_ids": []}
         self.started = time.time()
@@ -244,6 +299,8 @@ class Arena:
         """Add a finished game to the in-memory state and update skills."""
         self.games.append(game)
         apply_game(game, self.skills, self.stats)
+        for p in game["players"]:
+            self.last_seen[p["bot"]] = max(self.last_seen.get(p["bot"], 0), game["id"])
 
     def finish(self, game):
         with self.lock:
@@ -300,14 +357,15 @@ class Arena:
         counts, weights = zip(*PLAYER_COUNTS)
         n = rng.choices(counts, weights)[0]
         names = list(bots)
-        # Everyone gets a seat before any bot gets a second one.
-        lineup = rng.sample(names, min(n, len(names)))
-        while len(lineup) < n:
-            lineup.append(rng.choice(names))
-        rng.shuffle(lineup)
         with self.lock:
+            if self.matchmaking == "halite":
+                lineup = halite_lineup(rng, names, n, self.skills, self.last_seen)
+            else:
+                lineup = uniform_lineup(rng, names, n)
             gid = self.next_id
             self.next_id += 1
+            for b in lineup:
+                self.last_seen[b] = gid
             spec = {"id": gid, "seed": rng.randrange(2 ** 31), "replay_dir": self.replay_dir,
                     "engine": self.engine,
                     "bots": [(b, bots[b]) for b in lineup], "started": time.time()}
@@ -483,6 +541,9 @@ def main():
                     help="games listed and kept in games.jsonl; older ones only live on in the ratings")
     ap.add_argument("--data", default=os.path.join(HERE, "arena"), help="where games and replays are stored")
     ap.add_argument("--seed", type=int, help="seed for matchmaking")
+    ap.add_argument("--matchmaking", choices=["halite", "uniform"], default="halite",
+                    help="halite: seed bot by uncertainty or waiting time, opponents close in "
+                         "skill (default); uniform: every lineup equally likely")
     ap.add_argument("--engine", choices=["auto", "python", "rust"], default="auto",
                     help="game engine (default: Rust when engine/ is built, else Python)")
     args = ap.parse_args()
@@ -498,7 +559,8 @@ def main():
         engine = resolve_engine(args.engine)
     except RuntimeError as err:
         ap.error(str(err))
-    arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history, engine)
+    arena = Arena(args.data, extra, not args.no_discover, args.keep, args.history, engine,
+                  args.matchmaking)
     unbuilt = rust_bots()[1] if not args.no_discover else []
     if unbuilt:
         print("Not built, so not playing: %s (run `cargo build --release` in starter-kit/rust)"
@@ -509,9 +571,9 @@ def main():
 
     server = http.server.ThreadingHTTPServer((args.host, args.port), make_handler(arena))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    print("Arena running at http://%s:%d  (%d workers, %s engine, bots: %s)" % (
+    print("Arena running at http://%s:%d  (%d workers, %s engine, %s matchmaking, bots: %s)" % (
         "localhost" if args.host == "127.0.0.1" else args.host, args.port,
-        args.workers, engine, ", ".join(sorted(arena.bots()))), flush=True)
+        args.workers, engine, args.matchmaking, ", ".join(sorted(arena.bots()))), flush=True)
     if arena.games:
         print("Resuming with %d games already played." % len(arena.games), flush=True)
 

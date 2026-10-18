@@ -203,6 +203,12 @@ struct Model {
     value_b1: Tensor,
     value_w2: Tensor,
     value_b2: Tensor,
+    /// value map (RL, local credit): per site, a 1x1 MLP on the detached trunk, C -> 32 -> 1,
+    /// predicting that site's local return
+    vmap_w1: Tensor,
+    vmap_b1: Tensor,
+    vmap_w2: Tensor,
+    vmap_b2: Tensor,
 }
 
 /// Loads the tensors of a safetensors file into the matching variables; returns the names of
@@ -294,6 +300,10 @@ impl Model {
             value_b1: vb.get_with_hints(64, "value.b1", zero)?,
             value_w2: vb.get_with_hints((64, 1), "value.w2", he(64, 0.1))?,
             value_b2: vb.get_with_hints(1, "value.b2", zero)?,
+            vmap_w1: vb.get_with_hints((c, 32), "vmap.w1", he(c, 1.0))?,
+            vmap_b1: vb.get_with_hints(32, "vmap.b1", zero)?,
+            vmap_w2: vb.get_with_hints((32, 1), "vmap.w2", he(32, 0.1))?,
+            vmap_b2: vb.get_with_hints(1, "vmap.b2", zero)?,
         })
     }
 
@@ -305,6 +315,12 @@ impl Model {
 
     /// x (B,H,W,F) -> (logits (B*H*W, 5), value (B)). Feature 0 marks our sites.
     fn forward_pv(&self, x: &Tensor) -> Result<(Tensor, Tensor)> {
+        let (l, v, _) = self.forward_heads(x, false)?;
+        Ok((l, v))
+    }
+
+    /// forward_pv plus the value map (B*H*W) when `vmap`.
+    fn forward_heads(&self, x: &Tensor, vmap: bool) -> Result<(Tensor, Tensor, Option<Tensor>)> {
         let (bs, h, w, _) = x.dims4()?;
         let c = self.channels;
         let hid = self.trunk(x)?.reshape((bs, h * w, c))?;
@@ -322,7 +338,13 @@ impl Model {
         let feats = Tensor::cat(&[means.narrow(1, 0, c)?, mean_mine, means.narrow(1, c, nn::NUM_FEATURES + 2)?], 1)?;
         let hv = feats.matmul(&self.value_w1)?.broadcast_add(&self.value_b1)?.relu()?;
         let value = hv.matmul(&self.value_w2)?.broadcast_add(&self.value_b2)?.tanh()?.squeeze(1)?;
-        Ok((logits, value))
+        let vm = if vmap {
+            let z = hd.reshape((bs * h * w, c))?.matmul(&self.vmap_w1)?.broadcast_add(&self.vmap_b1)?.relu()?;
+            Some(z.matmul(&self.vmap_w2)?.broadcast_add(&self.vmap_b2)?.squeeze(1)?)
+        } else {
+            None
+        };
+        Ok((logits, value, vm))
     }
 
     /// The shared body: x (B,H,W,F) -> h (B,H,W,C)
@@ -472,7 +494,12 @@ fn train() -> Result<()> {
     say(format!("args: {:?}", std::env::args().collect::<Vec<_>>()));
 
     let t0 = Instant::now();
-    let games = std::sync::Arc::new(load_dir(&get("data", "rl/data/train"), &teacher, max_games));
+    // --data takes one or more directories, comma separated
+    let mut all_games = Vec::new();
+    for d in get("data", "rl/data/train").split(',') {
+        all_games.extend(load_dir(d, &teacher, max_games));
+    }
+    let games = std::sync::Arc::new(all_games);
     let val_games = load_dir(&get("val", "rl/data/val"), &teacher, 1000000);
     let buckets = index(&games);
     let mut keys: Vec<(usize, usize)> = buckets.keys().cloned().collect();
@@ -514,6 +541,11 @@ fn train() -> Result<()> {
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
     let model = Model::new(&vb, channels, &dil)?;
     let mut start = 0;
+    if let Some(init) = a.get("init") {
+        // start from existing weights (with a fresh schedule), e.g. to continue on more data
+        let missing = load_partial(&varmap, Path::new(init), &dev)?;
+        say(format!("initialised from {init} (fresh: {missing:?})"));
+    }
     if run.join("model.safetensors").exists() && a.contains_key("resume") {
         load_partial(&varmap, &run.join("model.safetensors"), &dev)?;
         start = get("resume", "0").parse().unwrap();

@@ -3,6 +3,7 @@
 Evaluate RL checkpoints against the hand-written bots as they appear (standard library only).
 
     python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25
+    python3 rl/eval_checkpoints.py rl/runs/solo1 --every 10 --solo --start rl/runs/bc4/best.hnn
 
 Watches RUN for iterNNNN.hnn files (written by `halite-rl rl`), and for every iteration that is a
 multiple of --every (plus the starting point, the released NeuroAlpha weights) plays the
@@ -24,7 +25,21 @@ BIN = os.path.join(ROOT, "starter-kit", "rust", "target", "release")
 START = os.path.join(ROOT, "starter-kit", "rust", "weights", "neuro_alpha.hnn")
 
 
-def evaluate(weights, label, out, n, seed):
+def evaluate_solo(weights, label, out):
+    """Solo benchmark (tools/solo_bench.py): production owned at turns 60 / 100 / 150, alone."""
+    cand = "NEURO_WEIGHTS=%s %s" % (weights, os.path.join(BIN, "neuro_alpha"))
+    res = subprocess.run([sys.executable, os.path.join(ROOT, "tools", "solo_bench.py"), cand], capture_output=True, text=True)
+    m = re.search(r"turn 60:\s+([\d.]+)\s+turn 100:\s+([\d.]+)\s+turn 150:\s+([\d.]+)", res.stdout)
+    if m:
+        row = "%s  solo           production turn 60 %s  turn 100 %s  turn 150 %s" % (label, m.group(1), m.group(2), m.group(3))
+        print(row, flush=True)
+        with open(out, "a") as f:
+            f.write(row + "\n")
+
+
+def evaluate(weights, label, out, n, seed, solo=False):
+    if solo:
+        return evaluate_solo(weights, label, out)
     cand = "NEURO_WEIGHTS=%s %s" % (weights, os.path.join(BIN, "neuro_alpha"))
     runs = [("pool", ["--suite", "1v1,ffa4"]), ("dex", ["--suite", "1v1", "--opp", os.path.join(BIN, "dex_bot")])]
     for name, extra in runs:
@@ -46,19 +61,21 @@ def main():
     ap.add_argument("--every", type=int, default=25)
     ap.add_argument("--n", type=int, default=40, help="games per format")
     ap.add_argument("--seed", type=int, default=11)
+    ap.add_argument("--solo", action="store_true", help="solo benchmark instead of games against bots")
+    ap.add_argument("--start", default=START, help="weights of the starting point (iter0000)")
     a = ap.parse_args()
     out = os.path.join(a.run, "evals.txt")
     done = set()
     if os.path.exists(out):
         done = {line.split()[0] for line in open(out)}
     if "iter0000" not in done:
-        evaluate(START, "iter0000", out, a.n, a.seed)
+        evaluate(a.start, "iter0000", out, a.n, a.seed, a.solo)
         done.add("iter0000")
     while True:
         for path in sorted(glob.glob(os.path.join(a.run, "iter*.hnn"))):
             label = os.path.basename(path)[:-4]
             if label not in done and int(label[4:]) % a.every == 0:
-                evaluate(path, label, out, a.n, a.seed)
+                evaluate(path, label, out, a.n, a.seed, a.solo)
                 done.add(label)
         time.sleep(60)
 

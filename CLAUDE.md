@@ -534,6 +534,26 @@ every knob documented at its top):
   walk away from a cloned optimum makes it worse. Fix in ppo2: `--teacher-kl 0.1`
   (KL(policy || starting network) per site, what AlphaStar and the Lux AI winners did) and 96
   games per iteration.
+- Run ppo2 (96 games, teacher KL 0.1, 300 iterations, about 5 h overnight): stable but flat. Every
+  25th checkpoint against real bots (100 games per format): 88-94% 1v1 vs the pool, 70-77% ffa4,
+  18-27% 1v1 vs DexBot, all within noise of the start (94 / 71 / 24). Teacher KL stayed about
+  0.017 nats per site; the policy never left the cloned network's neighbourhood.
+- Gradient signal (`--snr 1`: policy gradient on even vs odd games, cosine). Per-frame advantage,
+  from ppo2's weights: -0.05 (48 games per half), 0.17 and -0.05 (96, 25% / all frames), 0.32
+  (96, another batch). The estimate itself is noisy; the signal is weak, a usable gradient needs a
+  few hundred games per update. Local credit (per-site return over a 9x9 window, horizon about 10
+  turns, value-map baseline, `--credit local`) measured 0.32 with the global term and 0.11 alone,
+  after only 3 warmup iterations of the value map (its loss still falling fast): not better yet.
+- Where NeuroAlpha loses to DexBot (`rl/analyse_matchup.py`, 40 games, 9 won): in lost games it
+  is 13% behind in production at first contact (turn 51: 847 vs 979), then stalls while DexBot
+  keeps expanding (60 turns later 937 vs 1,418), and it loses 18% more strength in fights than
+  it destroys. In won games contact comes later (turn 92) and it is ahead. Solo benchmark
+  (production at turns 60 / 100 / 150): NeuroAlpha 217 / 944 / 2,463, DexBot 233 / 994 / 2,587,
+  ApexGamma 243 / 980 / 2,565. So the economy gap is 5-7%, the bigger one opens after contact.
+- `--solo P` makes a share of the games single-player (cut at `--solo-turns`, reward = share of the
+  map's production): Maxime's idea of training the economy alone. Cheap (one forward pass per
+  turn) and noise-free on the opponent side: the cleanest test of whether the algorithm can
+  improve anything. `eval_checkpoints.py --solo` scores checkpoints on the solo benchmark.
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

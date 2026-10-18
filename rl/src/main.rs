@@ -8,6 +8,14 @@
 //! shared with the bot.
 
 mod metal_conv;
+mod ppo;
+mod sim;
+#[allow(dead_code)]
+#[path = "../../engine/src/game.rs"]
+mod game;
+#[allow(dead_code)]
+#[path = "../../engine/src/pyrandom.rs"]
+mod pyrandom;
 #[path = "../../starter-kit/rust/src/nn.rs"]
 mod nn;
 
@@ -188,6 +196,28 @@ struct Model {
     blocks: Vec<(Tensor, Tensor, Tensor)>,
     head_w: Tensor,
     head_b: Tensor,
+    /// value head (RL), a small MLP on the *detached* trunk (value learning cannot disturb the
+    /// policy): [mean of h over the map, mean of h over our sites, map means of the 11 input
+    /// planes, of mine x production and of enemy x production] -> 64 -> tanh
+    value_w1: Tensor,
+    value_b1: Tensor,
+    value_w2: Tensor,
+    value_b2: Tensor,
+}
+
+/// Loads the tensors of a safetensors file into the matching variables; returns the names of
+/// variables the file does not have (e.g. the value head when starting RL from a cloned network).
+fn load_partial(varmap: &VarMap, path: &Path, dev: &Device) -> Result<Vec<String>> {
+    let file = candle_core::safetensors::load(path, dev)?;
+    let mut missing = Vec::new();
+    for (name, var) in varmap.data().lock().unwrap().iter() {
+        match file.get(name) {
+            Some(t) => var.set(t)?,
+            None => missing.push(name.clone()),
+        }
+    }
+    missing.sort();
+    Ok(missing)
 }
 
 /// Use the hand-written Metal conv (metal_conv.rs) instead of gather + matmul (`--conv gather`).
@@ -260,11 +290,41 @@ impl Model {
             blocks,
             head_w: vb.get_with_hints((c, nn::NUM_MOVES), "head.w", he(c, 0.1))?,
             head_b: vb.get_with_hints(nn::NUM_MOVES, "head.b", zero)?,
+            value_w1: vb.get_with_hints((2 * c + nf + 2, 64), "value.w1", he(2 * c + nf + 2, 1.0))?,
+            value_b1: vb.get_with_hints(64, "value.b1", zero)?,
+            value_w2: vb.get_with_hints((64, 1), "value.w2", he(64, 0.1))?,
+            value_b2: vb.get_with_hints(1, "value.b2", zero)?,
         })
     }
 
     /// x (B,H,W,F) -> logits (B*H*W, 5)
     fn forward(&self, x: &Tensor) -> Result<Tensor> {
+        let (bs, h, w, _) = x.dims4()?;
+        self.trunk(x)?.reshape((bs * h * w, self.channels))?.matmul(&self.head_w)?.broadcast_add(&self.head_b)
+    }
+
+    /// x (B,H,W,F) -> (logits (B*H*W, 5), value (B)). Feature 0 marks our sites.
+    fn forward_pv(&self, x: &Tensor) -> Result<(Tensor, Tensor)> {
+        let (bs, h, w, _) = x.dims4()?;
+        let c = self.channels;
+        let hid = self.trunk(x)?.reshape((bs, h * w, c))?;
+        let logits = hid.reshape((bs * h * w, c))?.matmul(&self.head_w)?.broadcast_add(&self.head_b)?;
+        let hd = hid.detach();
+        let xf = x.reshape((bs, h * w, nn::NUM_FEATURES))?;
+        let mine = xf.narrow(2, 0, 1)?;
+        let count = mine.sum(1)?.clamp(1.0, f64::MAX)?;
+        let mean_mine = hd.broadcast_mul(&mine)?.sum(1)?.broadcast_div(&count)?;
+        let prod = xf.narrow(2, 4, 1)?;
+        let my_prod = (&mine * &prod)?.mean(1)?;
+        let enemy_prod = (xf.narrow(2, 1, 1)? * &prod)?.mean(1)?;
+        let feats = Tensor::cat(&[hd.mean(1)?, mean_mine, xf.mean(1)?, my_prod, enemy_prod], 1)?;
+        let hv = feats.matmul(&self.value_w1)?.broadcast_add(&self.value_b1)?.relu()?;
+        let value = hv.matmul(&self.value_w2)?.broadcast_add(&self.value_b2)?.tanh()?.squeeze(1)?;
+        Ok((logits, value))
+    }
+
+    /// The shared body: x (B,H,W,F) -> h (B,H,W,C)
+    fn trunk(&self, x: &Tensor) -> Result<Tensor> {
         let (bs, h, w, _) = x.dims4()?;
         let c = self.channels;
         if FUSED.load(std::sync::atomic::Ordering::Relaxed) && x.device().is_metal() && !FAKE_CONV.load(std::sync::atomic::Ordering::Relaxed) {
@@ -277,7 +337,7 @@ impl Model {
                 let op = metal_conv::FusedConv { d, residual: true, input_grad: true, global: Some(g.detach()) };
                 hcur = hcur.apply_op3(wt, &gb, op)?;
             }
-            return hcur.reshape((bs * h * w, c))?.matmul(&self.head_w)?.broadcast_add(&self.head_b);
+            return Ok(hcur);
         }
         let mut hcur = conv(x, &self.stem_w, &self.stem_b, 1)?.relu()?;
         for ((wt, b, g), &d) in self.blocks.iter().zip(&self.dil) {
@@ -285,7 +345,7 @@ impl Model {
             let t = conv(&hcur, wt, b, d)?;
             hcur = (hcur + t)?.broadcast_add(&glob)?.relu()?;
         }
-        hcur.reshape((bs * h * w, c))?.matmul(&self.head_w)?.broadcast_add(&self.head_b)
+        Ok(hcur)
     }
 
     fn export(&self) -> Result<Vec<u8>> {
@@ -448,12 +508,12 @@ fn train() -> Result<()> {
     }
 
     let dev = Device::new_metal(0)?;
-    let mut varmap = VarMap::new();
+    let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
     let model = Model::new(&vb, channels, &dil)?;
     let mut start = 0;
     if run.join("model.safetensors").exists() && a.contains_key("resume") {
-        varmap.load(run.join("model.safetensors"))?;
+        load_partial(&varmap, &run.join("model.safetensors"), &dev)?;
         start = get("resume", "0").parse().unwrap();
         say(format!("resumed at step {start}"));
     }
@@ -513,10 +573,10 @@ fn parity() -> Result<()> {
     let arch = &tensors.iter().find(|t| t.0 == "arch").unwrap().2;
     let dil: Vec<usize> = arch[2..].iter().map(|&d| d as usize).collect();
     let dev = Device::new_metal(0)?;
-    let mut varmap = VarMap::new();
+    let varmap = VarMap::new();
     let vb = VarBuilder::from_varmap(&varmap, DType::F32, &dev);
     let model = Model::new(&vb, arch[1] as usize, &dil)?;
-    varmap.load(run.join("model.safetensors"))?;
+    load_partial(&varmap, &run.join("model.safetensors"), &dev)?;
     let games = load_dir(a.get("val").map(|s| s.as_str()).unwrap_or("rl/data/val"), "DexBot", 5);
     let mut worst = 0f32;
     let mut agree = (0, 0);
@@ -655,11 +715,7 @@ fn bench() -> Result<()> {
     for (name, fused, sg) in [("Metal conv, unfused, scalar", false, false), ("fused, scalar kernels", true, false), ("fused, matrix units", true, true)] {
         FUSED.store(fused, Relaxed);
         metal_conv::MATRIX_UNITS.store(sg, Relaxed);
-        // on resume, best.hnn keeps the lowest validation loss logged so far
-    let mut best = std::fs::read_to_string(run.join("log.txt")).unwrap_or_default().lines()
-        .filter_map(|l| l.strip_prefix("eval step ")?.split("val loss ").nth(1)?.split_whitespace().next()?.parse::<f64>().ok())
-        .filter(|_| start > 0)
-        .fold(f64::INFINITY, f64::min);
+            let mut best = f64::INFINITY;
         for _ in 0..6 {
             let t = Instant::now();
             let loss = model.forward(&x)?.sqr()?.mean_all()?;
@@ -709,11 +765,7 @@ fn bench() -> Result<()> {
             ("wgrad", Box::new(|| metal_conv::wgrad(&t4, &t4, 1))),
         ];
         for (name, f) in &ops {
-            // on resume, best.hnn keeps the lowest validation loss logged so far
-    let mut best = std::fs::read_to_string(run.join("log.txt")).unwrap_or_default().lines()
-        .filter_map(|l| l.strip_prefix("eval step ")?.split("val loss ").nth(1)?.split_whitespace().next()?.parse::<f64>().ok())
-        .filter(|_| start > 0)
-        .fold(f64::INFINITY, f64::min);
+                let mut best = f64::INFINITY;
             for _ in 0..5 {
                 let t = Instant::now();
                 sync(&f()?)?;
@@ -732,8 +784,10 @@ fn main() -> Result<()> {
         Some("train") => train(),
         Some("parity") => parity(),
         Some("bench") => bench(),
+        Some("rl") => ppo::run(),
+        Some("simtest") => sim::check_replays(),
         _ => {
-            eprintln!("usage: halite-rl train|parity [--key value ...] (see the top of src/main.rs)");
+            eprintln!("usage: halite-rl train|parity|bench|rl [--key value ...] (see the top of src/main.rs and src/ppo.rs)");
             std::process::exit(2);
         }
     }

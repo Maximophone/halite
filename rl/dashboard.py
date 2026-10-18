@@ -20,11 +20,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 STEP = re.compile(r"^step\s+(\d+)\s+loss ([\d.]+)\s+acc ([\d.]+)\s+lr ([\d.e+-]+)\s+(\d+) steps/min(?:\s+data wait (\d+)%)?")
 EVAL = re.compile(r"^eval step (\d+)\s+val loss ([\d.]+)\s+acc ([\d.]+)\s+move recall ([\d.]+)")
 INFO = re.compile(r"^(\d+) games, (\d+) samples")
+ITER = re.compile(r"^iter\s+(\d+)\s+win ([\d.]+) vs frozen ([\d.]+)\s+rank score ([\d.]+) vs ([\d.]+)\s+\((\d+) mixed games\)\s+"
+                  r"pg ([-+\d.e]+)\s+value ([\d.e+-]+)\s+expl var ([-\d.e+]+)\s+entropy ([\d.e+-]+)\s+kl ([-\d.e+]+)\s+clip ([\d.e+-]+)\s+"
+                  r"frames (\d+)\s+turns (\d+)\s+rollout (\d+)s.*total (\d+)s(.*)$")
 MODEL = re.compile(r"^model: (\d+) channels, dilations \[([\d, ]+)\], (\d+) parameters")
 
 
 def parse_run(path):
-    run = {"steps": [], "evals": [], "total": None, "games": None, "samples": None, "params": None, "model": None}
+    run = {"steps": [], "evals": [], "iters": [], "total": None, "games": None, "samples": None, "params": None, "model": None}
     with open(path, errors="replace") as f:
         for line in f:
             line = line.strip()
@@ -35,16 +38,25 @@ def parse_run(path):
                 if r:  # drop what the resumed run will redo
                     run["steps"] = [x for x in run["steps"] if x["step"] <= int(r.group(1))]
                     run["evals"] = [x for x in run["evals"] if x["step"] <= int(r.group(1))]
+                    run["iters"] = [x for x in run["iters"] if x["iter"] <= int(r.group(1))]
                 else:
-                    run["steps"], run["evals"] = [], []
-                m = re.search(r'"--steps", "(\d+)"', line)
-                run["total"] = int(m.group(1)) if m else 20000
+                    run["steps"], run["evals"], run["iters"] = [], [], []
+                rl = '"rl"' in line.split(",")[1] if "," in line else False
+                m = re.search(r'"--(steps|iters)", "(\d+)"', line)
+                run["total"] = int(m.group(2)) if m else (300 if rl else 20000)
+                run["kind"] = "rl" if rl else "bc"
                 run["args"] = line[5:].strip()
             elif m := STEP.match(line):
                 run["steps"].append({"step": int(m[1]), "loss": float(m[2]), "acc": float(m[3]), "lr": float(m[4]),
                                      "spm": int(m[5]), "wait": int(m[6] or 0)})
             elif m := EVAL.match(line):
                 run["evals"].append({"step": int(m[1]), "loss": float(m[2]), "acc": float(m[3]), "recall": float(m[4])})
+            elif m := ITER.match(line):
+                run["iters"].append({"iter": int(m[1]), "win": float(m[2]), "win_frozen": float(m[3]),
+                                     "score": float(m[4]), "score_frozen": float(m[5]), "games": int(m[6]),
+                                     "pg": float(m[7]), "value": float(m[8]), "ev": float(m[9]), "entropy": float(m[10]),
+                                     "kl": float(m[11]), "clip": float(m[12]), "frames": int(m[13]), "turns": int(m[14]),
+                                     "rollout": int(m[15]), "secs": int(m[16]), "warmup": "warmup" in m[17]})
             elif m := INFO.match(line):
                 run["games"], run["samples"] = int(m[1]), int(m[2])
             elif m := MODEL.match(line):

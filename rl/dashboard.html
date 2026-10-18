@@ -81,7 +81,19 @@
   </header>
   <div id="content">
     <div class="tiles" id="tiles"></div>
-    <div class="grid">
+    <div class="grid" id="rlgrid" hidden>
+      <div class="card"><h2>Learner vs frozen opponents: rank score</h2><div class="sub">Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.</div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
+        <svg id="r-score"></svg><div class="tip"></div></div>
+      <div class="card"><h2>Learner vs frozen opponents: win rate</h2><div class="sub">Share of seats that finish first, same games, mean of the last 10 iterations</div>
+        <div class="legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
+        <svg id="r-win"></svg><div class="tip"></div></div>
+      <div class="card"><h2>Value head: explained variance</h2><div class="sub">How much of the returns the value head predicts (1 = all); the advantages are only as good as this</div>
+        <svg id="r-ev"></svg><div class="tip"></div></div>
+      <div class="card"><h2>Policy entropy</h2><div class="sub">Nats per site at the sampling temperature, our sites only; a collapse to 0 would end exploration</div>
+        <svg id="r-ent"></svg><div class="tip"></div></div>
+    </div>
+    <div class="grid" id="bcgrid">
       <div class="card"><h2>Loss</h2><div class="sub">Cross-entropy vs the teacher's moves, each frame weighted equally (train: mean of the last 100 steps)</div>
         <div class="legend"><span><i style="background:var(--s1)"></i>Train</span><span><i style="background:var(--s2)"></i>Validation</span></div>
         <svg id="c-loss"></svg><div class="tip"></div></div>
@@ -93,7 +105,7 @@
       <div class="card"><h2>Learning rate</h2><div class="sub">Warmup, then cosine decay</div>
         <svg id="c-lr"></svg><div class="tip"></div></div>
     </div>
-    <div class="card tablecard"><h2 style="margin-bottom:8px">Evaluations</h2><table id="evals"></table></div>
+    <div class="card tablecard"><h2 style="margin-bottom:8px" id="tabletitle">Evaluations</h2><table id="evals"></table></div>
   </div>
 </main>
 <script>
@@ -183,7 +195,7 @@ function chart(svg, series, opts) {
     for (const x of xs) if (Math.abs(x - xv) < Math.abs(best - xv)) best = x;
     hair.setAttribute("x1", X(best)); hair.setAttribute("x2", X(best)); hair.setAttribute("visibility", "visible");
     tip.textContent = "";
-    const h = document.createElement("div"); h.className = "h"; h.textContent = "step " + best.toLocaleString(); tip.appendChild(h);
+    const h = document.createElement("div"); h.className = "h"; h.textContent = (opts.label || "step") + " " + best.toLocaleString(); tip.appendChild(h);
     series.forEach((s, i) => {
       // nearest point of this series to the hovered step
       let p = null;
@@ -193,7 +205,7 @@ function chart(svg, series, opts) {
       const row = document.createElement("div"); row.className = "r";
       const k = document.createElement("i"); k.style.background = css(s.color);
       const b = document.createElement("b"); b.textContent = opts.fmt(p[1], true);
-      const n = document.createElement("span"); n.textContent = s.name + (p[0] !== best ? " (step " + p[0].toLocaleString() + ")" : "");
+      const n = document.createElement("span"); n.textContent = s.name + (p[0] !== best ? ` (${opts.label || "step"} ${p[0].toLocaleString()})` : "");
       row.append(k, b, n); tip.appendChild(row);
     });
     tip.style.display = "block";
@@ -230,6 +242,11 @@ function render() {
   sel.textContent = "";
   for (const n of names) { const o = document.createElement("option"); o.value = n; o.textContent = n; o.selected = n === current; sel.appendChild(o); }
   const r = data.runs[current];
+  const isRL = r.kind === "rl";
+  $("rlgrid").hidden = !isRL;
+  $("bcgrid").hidden = isRL;
+  if (isRL) return renderRL(r);
+  $("tabletitle").textContent = "Evaluations";
   const last = r.steps[r.steps.length - 1], ev = r.evals[r.evals.length - 1], prev = r.evals[r.evals.length - 2];
   const live = data.now - r.updated < 90 && (!last || last.step < r.total);
   $("dot").className = "dot" + (live ? " live" : "");
@@ -272,6 +289,52 @@ function render() {
   }
   if (!r.evals.length) row0();
   function row0() { const c = t.insertRow().insertCell(); c.colSpan = 4; c.textContent = "No evaluation yet"; c.style.textAlign = "left"; }
+}
+
+function rolling(pts, k) {
+  return pts.map((p, i) => {
+    const w = pts.slice(Math.max(0, i - k + 1), i + 1);
+    return [p[0], w.reduce((a, q) => a + q[1], 0) / w.length];
+  });
+}
+
+function renderRL(r) {
+  const it = r.iters, last = it[it.length - 1];
+  const live = data.now - r.updated < 300 && (!last || last.iter < r.total);
+  $("dot").className = "dot" + (live ? " live" : "");
+  $("statustext").textContent = live ? "training (RL)" : (last && last.iter >= r.total ? "finished" : "not running");
+  $("meta").textContent = "PPO self-play · " + (last ? last.games + " mixed games last iteration" : "first iteration running");
+  const tiles = $("tiles"); tiles.textContent = "";
+  const n = last ? last.iter : 0;
+  const recent = it.slice(-10), avg = f => recent.reduce((a, x) => a + f(x), 0) / Math.max(1, recent.length);
+  const secs = it.slice(-5).reduce((a, x) => a + x.secs, 0) / Math.max(1, Math.min(5, it.length));
+  tiles.appendChild(tile("Iteration", `${n} / ${r.total}`, (100 * n / r.total).toFixed(1) + "%", n / r.total));
+  tiles.appendChild(tile("Time per iteration", last ? secs.toFixed(0) + " s" : "-", last ? "rollout " + last.rollout + " s of " + last.secs : ""));
+  tiles.appendChild(tile("Time left", live && last ? dur((r.total - n) * secs) : "-", live ? "at the current speed" : ""));
+  tiles.appendChild(tile("Rank score, last 10", last ? avg(x => x.score).toFixed(3) : "-", last ? "frozen opponents " + avg(x => x.score_frozen).toFixed(3) : ""));
+  tiles.appendChild(tile("Win rate, last 10", last ? (100 * avg(x => x.win)).toFixed(1) + "%" : "-", last ? "frozen opponents " + (100 * avg(x => x.win_frozen)).toFixed(1) + "%" : ""));
+  tiles.appendChild(tile("Entropy", last ? last.entropy.toFixed(3) : "-", last ? "KL " + last.kl.toFixed(4) + " · clipped " + (100 * last.clip).toFixed(1) + "%" : ""));
+  const num = (v, tip, step) => v.toFixed(tip ? 3 : Math.max(0, Math.min(4, -Math.floor(Math.log10(step) + 1e-9))));
+  const pct = (v, tip, step) => (100 * v).toFixed(tip ? 1 : Math.max(0, -Math.floor(Math.log10(100 * step) + 1e-9))) + "%";
+  const P = f => it.map(x => [x.iter, f(x)]);
+  chart($("r-score"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.score), 10)},
+    {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.score_frozen), 10)}], {fmt: num, label: "iteration"});
+  chart($("r-win"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.win), 10)},
+    {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.win_frozen), 10)}], {fmt: pct, label: "iteration"});
+  chart($("r-ev"), [{name: "Explained variance", color: "--s1", pts: P(x => x.ev)}], {fmt: num, label: "iteration"});
+  chart($("r-ent"), [{name: "Entropy", color: "--s1", pts: P(x => x.entropy)}], {fmt: num, label: "iteration"});
+  $("tabletitle").textContent = "Iterations";
+  const t = $("evals"); t.textContent = "";
+  const head = t.insertRow();
+  for (const h of ["Iteration", "Rank score", "vs frozen", "Win rate", "vs frozen", "Value loss", "Expl. var.", "Entropy", "KL", "Seconds"]) {
+    const c = document.createElement("th"); c.textContent = h; head.appendChild(c);
+  }
+  for (const x of [...it].reverse().slice(0, 30)) {
+    const row = t.insertRow();
+    for (const v of [x.iter + (x.warmup ? " (value warmup)" : ""), x.score.toFixed(3), x.score_frozen.toFixed(3), (100 * x.win).toFixed(1) + "%",
+      (100 * x.win_frozen).toFixed(1) + "%", x.value.toFixed(4), x.ev.toFixed(3), x.entropy.toFixed(3), x.kl.toFixed(4), x.secs]) row.insertCell().textContent = v;
+  }
+  if (!it.length) { const c = t.insertRow().insertCell(); c.colSpan = 10; c.textContent = "First iteration running"; c.style.textAlign = "left"; }
 }
 
 async function poll() {

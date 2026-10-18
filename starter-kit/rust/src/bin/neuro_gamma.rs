@@ -4,5 +4,5 @@
 //! 67% (59%) on fresh seed 29 with 200 games.
 
 fn main() {
-    hlt::neuro_search::run("NeuroGamma", 1.0);
+    hlt::neuro_search::run("NeuroGamma", 1.0, include_bytes!("../../weights/neuro_alpha.hnn"));
 }

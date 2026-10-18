@@ -3,5 +3,5 @@
 //! is the same bot trusting the network's enemy predictions fully.
 
 fn main() {
-    hlt::neuro_search::run("NeuroBeta", 0.6);
+    hlt::neuro_search::run("NeuroBeta", 0.6, include_bytes!("../../weights/neuro_alpha.hnn"));
 }

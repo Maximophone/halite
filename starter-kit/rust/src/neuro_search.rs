@@ -12,7 +12,6 @@
 use crate::nn::{Net, NUM_MOVES};
 use crate::*;
 
-const WEIGHTS: &[u8] = include_bytes!("../weights/neuro_alpha.hnn");
 
 struct Params {
     search: bool,
@@ -308,14 +307,15 @@ impl Bot {
     }
 }
 
-/// Plays a whole game as bot `name`, with `pred` as the default prediction weight.
-pub fn run(name: &str, pred: f64) {
+/// Plays a whole game as bot `name`, with `pred` as the default prediction weight and `weights`
+/// (an HNN1 file, compiled into the bot) as the network unless NEURO_WEIGHTS names another.
+pub fn run(name: &str, pred: f64, weights: &[u8]) {
     let (me, map, mut conn) = get_init();
     let (w, h) = (map.width as usize, map.height as usize);
     let n = w * h;
     let bytes = match std::env::var("NEURO_WEIGHTS") {
         Ok(p) => std::fs::read(&p).unwrap_or_else(|e| panic!("cannot read {p}: {e}")),
-        Err(_) => WEIGHTS.to_vec(),
+        Err(_) => weights.to_vec(),
     };
     let net = Net::load(&bytes).unwrap_or_else(|e| panic!("bad weights: {e}"));
     let mut nb = vec![[0usize; 4]; n];

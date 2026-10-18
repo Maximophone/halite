@@ -637,6 +637,25 @@ every knob documented at its top):
   ErdmanBot's strength is precise coordination (red-green trees, which pieces wait), which an
   approximate copy loses, while DexBot's rules degrade gracefully. v2 features: no imitation
   gain, maybe a small one in play (+8 points ffa4, about 1.7 standard errors).
+
+### NeuroBeta and expert iteration (2026-10-18)
+
+`neuro_beta.rs` = NeuroAlpha's network for every move (ours, and each nearby enemy's from its
+seat), then ApexBeta's one-turn combat search (its `Sim`, scoring and coordinate ascent, ported
+with the same defaults; `NEURO_*` env vars) over our pieces within 3 steps of an enemy.
+`NEURO_SEARCH=0` reproduces NeuroAlpha exactly (4 seeds vs DexBot, identical results). Embeds the
+released NeuroAlpha weights; `NEURO_WEIGHTS` overrides.
+
+Seed 23, 100 games per line, NeuroAlpha in brackets: pool 1v1 95 (94), ffa4 78 (71), ffa6 77
+(77); 1v1 vs DexBot 53 (24), vs ApexGamma 56 (34), vs ErdmanBot 10. 0 errors. The search more
+than doubles the win rate against DexBot, the bot the network was cloned from; ErdmanBot avoids
+the fights where it shines.
+
+Expert iteration (the AlphaZero recipe without a tree): NeuroBeta plays (`gen_data.py --teacher
+neuro_beta`), the network is trained on its moves (`--teacher NeuroBeta`), the new network goes
+under the search, repeat. Every label is a searched move, not a noisy game outcome, which is what
+sank PPO here. Games: about 1.6 s each with 8 in parallel (the network runs on the CPU for us and
+every predicted rival).
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

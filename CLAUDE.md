@@ -30,12 +30,13 @@ Sources used for the rules:
 | `tournament.py` | Imports `run_game` and plays N games, prints wins and average rank |
 | `arena.py` | Endless tournament: `ProcessPoolExecutor` runs `run_game` in parallel, results appended to `arena/games.jsonl`, skill ratings (Weng-Lin Plackett-Luce, see "Arena ratings") rebuilt on start from `state.json` (snapshot of all games older than `--history`, default 10000, per-bot `[mu, sigma]` under `skill`) plus `games.jsonl`; `_compact` folds old games into the snapshot every `COMPACT_SLACK` games and is crash-safe via `last_fold_ids`; stdlib HTTP server for `arena.html`, `/api/state`, `/api/analytics`, `/replays/*.hlt`, pause/resume. Bots: every built `starter-kit/rust/src/bin/*.rs` (re-scanned each game) plus `--bot NAME=CMD`; bots no longer present stay on the leaderboard as `active: false` (shown "retired", below the active ones) |
 | `arena.html` | Leaderboard + game list, polls `/api/state` every 3 s; links to `viewer.html?replay=/replays/x.hlt`. Charts (hand-written SVG, no libraries) from `/api/analytics` every 10 s: rating curves, head-to-head matrix, selected-bot panel. Bot colours follow `order` (first appearance), dark palette validated with the dataviz skill against the `#121720` surface |
+| `tools/check_erdman.py` | Plays ErdmanBot and Travis Erdman's original `erdman_v26.py` (path to a clone of his repo, not vendored: no license) on the same seeds and checks the replays are identical |
 | `tools/combat_report.py` | Splits each player's strength losses in a replay into damage per opponent, neutrals and the cap |
 | `test_rules.py` | Plain-assert rule checks (no pytest needed). Run `python3 test_rules.py` |
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite` and `dex_bot` (strongest; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
 | `rl/` | Neural training, the one place with crates (Maxime chose candle on Metal, 2026-10-17): `src/main.rs` (`halite-rl train`, `parity`, `bench`), `src/metal_conv.rs` (hand-written Metal kernels for the wrap-around conv), `gen_data.py` (teacher games), `dashboard.py` + `dashboard.html` (live training curves, port 8090). See "Neural line" |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
@@ -365,6 +366,31 @@ Results (100 games per format, `--seed 5`): vs PredatorBot pool 100% 1v1, 95% ff
 vs ApexGamma 65% 1v1, 51% ffa4, 44% ffa6; vs HAL-lite 74% 1v1, 59% ffa4, 43% ffa6. DexBot is the
 strongest bot in the repo. The Apex line's gap is likely the non-aggression pact and the tunnel
 value (expansion toward distant rich land), both absent from Apex.
+
+`erdman_bot.rs` (2026-10-18, Maxime: "the bot who won the competition"): Travis Erdman (`erdman`),
+the Halite I winner (from memory and his own README; the official final leaderboard could not be
+fetched, the Web Archive was offline). https://github.com/erdman/erdman-halite-bots has v12, v17 and
+his final v26 with a long README write-up; the port is v26. Pure stdlib Python 3 (his `hlt.py`
+became the official Python kit), so the original runs unchanged on this engine (`python3
+erdman_v26.py`, about 1 s per turn at worst on 50x50, no timeouts seen). Mechanisms: one potential
+field from a Dijkstra-style search seeded with strength / production at every unowned square
+(empties next to enemies -0.5 per enemy, walls 100x), each neutral step averaging
+`0.9 * potential + 0.1 * s/p` (the tunnelling), each step into our land adding
+`0.2 * distance^2`; red-green trees (each owned square points at its best neighbour; per border
+target, walk the tree level by level to red-light the squares that must wait and green-light the
+ones that must go); moves strongest first with a `destinations` map against the cap; "dangerous
+empties" (enemy-adjacent empties one of our moves already touches) are dodged; strategic stilling;
+an interior strength hurdle at a percentile that falls as the territory grows; walls touching an
+enemy or an empty are not broken while mining remains (his NAP). Kept bug: `seen_enemies` only
+ever holds 0 and our id (he describes it in the README). Every tie in his code is broken by
+`random.random()`, so the port reimplements CPython's MT19937 (seeding and 53-bit floats, as
+`engine/pyrandom.rs`) and draws in the same order (frontier squares row-major, every heap push,
+4 draws per assigned square and 5 more in the dodge branch). With `ERDMAN_SEED=S` against the
+original after `random.seed(S)`: 14 of 14 games identical frame for frame (1 to 5 opponents, 20x20
+to 50x50, `tools/check_erdman.py`); a 15th differed only because RandomBot is clock-seeded.
+Results (100 games per format, `--seed 5`; 1v1 / ffa4 / ffa6): vs DexBot 87 / 76 / 72%, vs
+ApexGamma 90 / 76 / 68%, vs HAL-lite 97 / 68 / 64%, vs PredatorBot pool 98 / 93 / 86%, vs
+ApexDelta 85 / 64 (1v1 / ffa4), vs NeuroAlpha 85 / 73. The winner is in a class of its own here.
 
 ## ApexDelta (2026-10-17)
 

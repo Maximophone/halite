@@ -772,9 +772,13 @@ play and pass their tests, then committed them unchanged.
 - A stronger reference bot (border-routing of interior strength, overkill tactics,
   non-aggression pact from the late 2016 meta: let others attack first).
 - Viewer: zoom, per-player highlighting, loading the original 2016 `.hlt` replay format.
-- Push to GitHub: no remote is configured. Ask whether public or private before creating one.
+
 
 ## Conventions
+
+- GitHub: public repo https://github.com/Maximophone/halite (remote `origin`, branch `main`),
+  created 2026-10-18 at Maxime's request. The ported bots' originals (DexBot, HAL-lite,
+  ErdmanBot, which CodexBot builds on) carry no license; Maxime chose public knowing that.
 
 - Maxime's writing preference: **never use em-dashes** in prose, docs or messages.
 - Keep files self-contained and dependency-free (Python stdlib, Rust std, no crates). Never

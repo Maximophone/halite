@@ -52,6 +52,7 @@ python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
 | `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha`, `apex_beta`, `apex_gamma` (strongest), `hal_lite`, `dex_bot` and `erdman_bot` (strongest; ports of David Ma's, Declan Groves' and Travis Erdman's 2016 bots, Erdman's being the winner), `neuro_alpha` (a neural network trained to imitate DexBot) |
 | `rl/` | Training for the neural bot (Rust with the candle crate, Apple GPU via Metal) and a live training dashboard |
+| `evolution/` | EvoBot: a policy evolved from random weights through self-play, with a resumable CPU trainer and an interactive evolution dashboard |
 
 ## Options
 
@@ -223,6 +224,24 @@ python3 tools/eval_bot.py "NEURO_WEIGHTS=rl/runs/bc/best.hnn starter-kit/rust/ta
 
 `docs/neuro-alpha-infographic.html` explains the architecture and why it is a CNN rather than a
 transformer.
+
+## Evolving a bot from scratch
+
+`evo_bot` learns entirely through evolutionary selection and self-play. A population
+of small neural networks competes on shared maps, successful policies reproduce with
+mutations, and historical champions remain in the opponent pool. There are no
+demonstrations, gradients, or scripted action rules. The bundled policy can play
+immediately after building the starter kit.
+
+```bash
+python3 evolution/train.py --run evolution/runs/first --generations 240
+python3 evolution/dashboard.py --run evolution/runs/first   # http://localhost:8092
+```
+
+The dashboard includes training and fixed-evaluation curves, population diversity,
+ancestry, policy weights, and interactive replays. See [the architecture and training
+guide](evolution/README.md) or open [the saved experiment](evolution/report.html).
+Training and inference use only the Python and Rust standard libraries.
 
 ## The Rust engine
 

@@ -700,6 +700,23 @@ Simulated on the live ratings (14 bots, 20k lineups, sigmas frozen): 1v1s with a
 45% -> 11%, outcome entropy 0.43 -> 0.73 bits; seats per game 0.22 each before, now 0.32 for the
 two uncertain new bots, 0.14-0.16 for the bottom four, 0.19 for ErdmanBot (alone at the top).
 
+## EvoBot, CodexBot and the arena reset (ChatGPT sessions, 2026-10-18; committed by Claude)
+
+Written in ChatGPT sessions that ran out of usage before committing; Claude checked they build,
+play and pass their tests, then committed them unchanged.
+- `evolution/` + `evo_bot.rs` / `evo_beta.rs` (weights `weights/evo_*.evo`): EvoBot, a small
+  policy evolved from random weights by mutation, selection and self-play only (no gradients, no
+  imitation, no scripted moves); std-only Rust evaluator and Python trainer (`evolution/train.py`,
+  resumable), dashboard on port 8092, saved experiment `evolution/report.html`. See
+  `evolution/README.md`. Tests: `python3 evolution/test_evolution.py`.
+- `codex_bot.rs`: CodexBot, a variant of the ErdmanBot port with separate tuned policies for
+  duels (releases neutral walls, interior percentile 0.75, combat threshold 8 x production) and
+  multiplayer (keeps the walls, routing distance penalty 0.4), switching to the duel policy when
+  one rival remains. Sweeps and validation in `tools/codex_experiments/` (README, RESULTS).
+- `arena.py`: `reset_bot` starts a fresh rating for one re-released bot as an ordered journal
+  event (restarts and compaction replay it; the old release's games are hidden), arena paused
+  first. Test: `python3 tools/codex_experiments/test_arena_reset.py`.
+
 ## Ideas not done yet (only if Maxime asks)
 
 - Starter kits for more languages (only Rust now; the protocol is plain text).

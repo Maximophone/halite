@@ -206,11 +206,32 @@ fn relu(v: &mut [f32]) {
     }
 }
 
+/// Threads for the convolutions: NEURO_THREADS, else 4 for big networks (more than 48 channels),
+/// else 1. Rows are split between threads, so the result is identical whatever the count.
+fn threads(cout: usize) -> usize {
+    std::env::var("NEURO_THREADS").ok().and_then(|s| s.parse().ok()).unwrap_or(if cout > 48 { 4 } else { 1 }).max(1)
+}
+
 #[allow(clippy::too_many_arguments)]
 fn conv3x3(inp: &[f32], cin: usize, w: usize, h: usize, d: usize, wt: &[f32], b: &[f32], cout: usize, out: &mut [f32]) {
-    for y in 0..h {
+    let t = threads(cout).min(h);
+    if t <= 1 {
+        return conv_rows(inp, cin, w, h, d, wt, b, cout, out, 0);
+    }
+    let rows = h.div_ceil(t);
+    std::thread::scope(|s| {
+        for (k, chunk) in out.chunks_mut(rows * w * cout).enumerate() {
+            s.spawn(move || conv_rows(inp, cin, w, h, d, wt, b, cout, chunk, k * rows));
+        }
+    });
+}
+
+/// The rows of `out` starting at map row `y0` (out holds whole rows, channel-last).
+#[allow(clippy::too_many_arguments)]
+fn conv_rows(inp: &[f32], cin: usize, w: usize, h: usize, d: usize, wt: &[f32], b: &[f32], cout: usize, out: &mut [f32], y0: usize) {
+    for y in y0..y0 + out.len() / (w * cout) {
         for x in 0..w {
-            let o = &mut out[(y * w + x) * cout..(y * w + x + 1) * cout];
+            let o = &mut out[((y - y0) * w + x) * cout..((y - y0) * w + x + 1) * cout];
             o.copy_from_slice(b);
             for ky in 0..3 {
                 let sy = (y + h * d + ky * d - d) % h;

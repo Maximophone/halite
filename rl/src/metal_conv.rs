@@ -122,8 +122,8 @@ kernel void conv_fwd_sg(device const float* in [[buffer(0)]], device const float
                         device const float* bias [[buffer(4)]],
                         uint tg [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
                         uint sg [[simdgroup_index_in_threadgroup]]) {
-    threadgroup float As[32 * 32];
-    threadgroup float Ws[16 * 32];   // only for Cin not a multiple of 8 (padded to 16)
+    threadgroup float As[32 * MAXC];
+    threadgroup float Ws[16 * MAXC]; // only for Cin not a multiple of 8 (padded to 16)
     threadgroup int base[9 * 32];   // input offset of each tap's neighbour, -1 past the last pixel
     uint cinp = p.chunks;           // host passes the padded Cin in the chunks field
     uint npix = p.b * p.h * p.w;
@@ -198,9 +198,9 @@ kernel void conv_wgrad_sg(device const float* in [[buffer(0)]], device const flo
                           device float* part [[buffer(2)]], constant P& p [[buffer(3)]],
                           uint tg [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
                           uint sg [[simdgroup_index_in_threadgroup]]) {
-    threadgroup float sm[2048];            // staging (2 x 32 x 32), then the [cinp][cout] result
-    threadgroup float* As = sm;            // [32 pixels][cinp]
-    threadgroup float* Gs = sm + 32 * 32;  // [32 pixels][cout]
+    threadgroup float sm[MAXC * MAXC > 64 * MAXC ? MAXC * MAXC : 64 * MAXC]; // staging, then [cinp][cout]
+    threadgroup float* As = sm;              // [32 pixels][cinp]
+    threadgroup float* Gs = sm + 32 * MAXC;  // [32 pixels][cout]
     threadgroup int base[32];
     uint k = tg % 9, s = tg / 9;
     uint cinp = p.relu;
@@ -321,11 +321,19 @@ fn pipeline(dev: &candle_core::MetalDevice, name: &'static str) -> Result<Comput
     if let Some(p) = PIPELINES.with(|m| m.borrow().get(name).cloned()) {
         return Ok(p);
     }
-    let lib = dev.metal_device().new_library_with_source(SRC, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
-    for n in ["conv_fwd", "conv_wgrad", "relu_mask", "conv_fwd_sg", "conv_wgrad_sg", "pixel_sum"] {
-        let f = lib.get_function(n, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
-        let p = dev.metal_device().new_compute_pipeline_state_with_function(&f).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
-        PIPELINES.with(|m| m.borrow_mut().insert(n, p));
+    // the matrix-unit kernels are compiled twice: MAXC 32 (small threadgroup memory, more
+    // threadgroups per core) and MAXC 64 (layers with up to 64 channels), as `*_sg64`
+    for (maxc, names) in [
+        (32, vec![("conv_fwd", "conv_fwd"), ("conv_wgrad", "conv_wgrad"), ("relu_mask", "relu_mask"), ("conv_fwd_sg", "conv_fwd_sg"), ("conv_wgrad_sg", "conv_wgrad_sg"), ("pixel_sum", "pixel_sum")]),
+        (64, vec![("conv_fwd_sg", "conv_fwd_sg64"), ("conv_wgrad_sg", "conv_wgrad_sg64")]),
+    ] {
+        let src = format!("#define MAXC {maxc}\n{SRC}");
+        let lib = dev.metal_device().new_library_with_source(&src, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
+        for (func, key) in names {
+            let f = lib.get_function(func, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
+            let p = dev.metal_device().new_compute_pipeline_state_with_function(&f).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
+            PIPELINES.with(|m| m.borrow_mut().insert(key, p));
+        }
     }
     Ok(PIPELINES.with(|m| m.borrow()[name].clone()))
 }
@@ -389,7 +397,17 @@ pub static MATRIX_UNITS: std::sync::atomic::AtomicBool = std::sync::atomic::Atom
 
 fn use_sg(cin: usize, cout: usize) -> bool {
     // a Cin that is not a multiple of 8 is staged with its weights, in room for 16 padded channels
-    MATRIX_UNITS.load(std::sync::atomic::Ordering::Relaxed) && matches!(cout, 8 | 16 | 32) && cin <= 32 && (cin % 8 == 0 || cin <= 16)
+    MATRIX_UNITS.load(std::sync::atomic::Ordering::Relaxed) && matches!(cout, 8 | 16 | 32 | 64) && cin <= 64 && (cin % 8 == 0 || cin <= 16)
+}
+
+/// Which compiled variant of the matrix-unit kernels fits these channel counts.
+fn sg_name(base: &'static str, cin: usize, cout: usize) -> &'static str {
+    match (base, cin <= 32 && cout <= 32) {
+        ("conv_fwd_sg", true) => "conv_fwd_sg",
+        ("conv_fwd_sg", false) => "conv_fwd_sg64",
+        ("conv_wgrad_sg", true) => "conv_wgrad_sg",
+        _ => "conv_wgrad_sg64",
+    }
 }
 
 /// Cin padded to a power of two >= 8 (the matrix kernels' staging needs 128 % cinp == 0).
@@ -401,7 +419,7 @@ fn conv_launch(ins: &[(&MetalStorage, &Layout)], p: Params, npix: usize, cin: us
     if use_sg(cin, cout) {
         let mut p = p;
         p.chunks = cin_padded(cin);
-        launch_with("conv_fwd_sg", ins, p, 0, Some(npix.div_ceil(32)), npix * cout)
+        launch_with(sg_name("conv_fwd_sg", cin, cout), ins, p, 0, Some(npix.div_ceil(32)), npix * cout)
     } else {
         launch("conv_fwd", ins, p, npix * cout, npix * cout)
     }
@@ -634,7 +652,7 @@ impl CustomOp2 for WrapConvWgrad {
         let st = if use_sg(cin, cout) {
             let mut p = p;
             p.relu = cin_padded(cin);
-            launch_with("conv_wgrad_sg", &[(s1, l1), (s2, l2)], p, 0, Some(chunks * 9), n)?
+            launch_with(sg_name("conv_wgrad_sg", cin, cout), &[(s1, l1), (s2, l2)], p, 0, Some(chunks * 9), n)?
         } else {
             launch("conv_wgrad", &[(s1, l1), (s2, l2)], p, chunks * 9 * 256, n)?
         };

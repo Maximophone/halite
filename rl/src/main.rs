@@ -709,7 +709,7 @@ fn bench() -> Result<()> {
     // matrix-unit kernels against the scalar ones, same inputs
     {
         let sync = |t: &Tensor| -> Result<()> { t.flatten_all()?.narrow(0, 0, 1)?.to_vec1::<f32>().map(|_| ()) };
-        for &(b, cin, cout) in &[(3usize, 11usize, 32usize), (26, 32, 32)] {
+        for &(b, cin, cout) in &[(3usize, 11usize, 32usize), (26, 32, 32), (3, 11, 64), (12, 64, 64)] {
             let x = Tensor::randn(0f32, 1., (b, 50, 50, cin), &dev)?;
             let w = Tensor::randn(0f32, 0.1, (9 * cin, cout), &dev)?;
             let gy = Tensor::randn(0f32, 1., (b, 50, 50, cout), &dev)?;
@@ -738,10 +738,10 @@ fn bench() -> Result<()> {
         metal_conv::MATRIX_UNITS.store(true, Relaxed);
     }
     // whole model: fused layers against the reference (gather + matmul, candle ops), all gradients
-    {
+    for channels in [32usize, 64] {
         let dil = [1, 2, 4, 8];
         let varmap = VarMap::new();
-        let model = Model::new(&VarBuilder::from_varmap(&varmap, DType::F32, &dev), 32, &dil)?;
+        let model = Model::new(&VarBuilder::from_varmap(&varmap, DType::F32, &dev), channels, &dil)?;
         let x = Tensor::rand(0f32, 1., (3, 13, 11, nn::NUM_FEATURES), &dev)?;
         let probe = Tensor::randn(0f32, 1., (3 * 13 * 11, nn::NUM_MOVES), &dev)?;
         let mut runs = Vec::new();
@@ -763,7 +763,7 @@ fn bench() -> Result<()> {
             for (a, c) in runs[0].1.iter().zip(&runs[k].1) {
                 worst = worst.max(rel(a, c)?);
             }
-            println!("model, {name} vs reference: logits rel diff {:.1e}, worst parameter gradient rel diff {:.1e} ({} tensors)",
+            println!("model {channels} channels, {name} vs reference: logits rel diff {:.1e}, worst parameter gradient rel diff {:.1e} ({} tensors)",
                 rel(&runs[k].0, &runs[0].0)?, worst, runs[0].1.len());
         }
         USE_KERNEL.store(true, Relaxed);

@@ -86,8 +86,8 @@
       <div class="card"><h2 id="r-score-title">Learner vs frozen opponents: rank score</h2><div class="sub" id="r-score-sub">Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.</div>
         <div class="legend" id="r-score-legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
         <svg id="r-score"></svg><div class="tip"></div></div>
-      <div class="card" id="r-win-card"><h2>Learner vs frozen opponents: win rate</h2><div class="sub">Share of seats that finish first, same games, mean of the last 10 iterations</div>
-        <div class="legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
+      <div class="card" id="r-win-card"><h2 id="r-win-title">Learner vs frozen opponents: win rate</h2><div class="sub" id="r-win-sub">Share of seats that finish first, same games, mean of the last 10 iterations</div>
+        <div class="legend" id="r-win-legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
         <svg id="r-win"></svg><div class="tip"></div></div>
       <div class="card"><h2>Value head: explained variance</h2><div class="sub">How much of the returns the value head predicts (1 = all); the advantages are only as good as this</div>
         <svg id="r-ev"></svg><div class="tip"></div></div>
@@ -324,15 +324,21 @@ function renderRL(r) {
   const P = f => it.map(x => [x.iter, f(x)]);
   // solo runs (no mixed games): the score chart shows the share of the map's production instead
   const solo = it.length > 0 && it.every(x => x.games === 0 && x.solo_games > 0);
-  $("r-win-card").hidden = solo;
+  // solo runs: the second chart is the deterministic solo benchmark of the checkpoints
+  $("r-win-legend").hidden = solo;
+  $("r-win-title").textContent = solo ? "Solo benchmark: production at turn 150 (the reliable measure)" : "Learner vs frozen opponents: win rate";
+  $("r-win-sub").textContent = solo ? "Every 10th checkpoint plays alone on the same 40 fixed maps (tools/solo_bench.py, argmax, no randomness). Iteration 0 is the starting network."
+    : "Share of seats that finish first, same games, mean of the last 10 iterations";
   $("r-score-legend").hidden = solo;
   $("r-score-title").textContent = solo ? "Solo games: share of the map's production at the end" : "Learner vs frozen opponents: rank score";
-  $("r-score-sub").textContent = solo ? "Mean over the iteration's solo games, then over the last 10 iterations (each iteration draws different maps, so single values are noisy)"
+  $("r-score-sub").textContent = solo ? "During training, mean over the iteration's solo games then the last 10 iterations. Each iteration draws different maps, so this is noisy: trust the benchmark below."
     : "Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.";
   if (solo) chart($("r-score"), [{name: "Solo production share", color: "--s1", pts: rolling(P(x => x.solo), 10)}], {fmt: pct, label: "iteration"});
   else chart($("r-score"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.score), 10)},
     {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.score_frozen), 10)}], {fmt: num, label: "iteration"});
-  chart($("r-win"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.win), 10)},
+  if (solo) chart($("r-win"), [{name: "Production at turn 150", color: "--s1", pts: (r.solo_evals || []).map(e => [e.iter, e.t150]), markers: true}],
+    {fmt: (v, tip, step) => v.toFixed(tip ? 1 : 0), label: "iteration"});
+  else chart($("r-win"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.win), 10)},
     {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.win_frozen), 10)}], {fmt: pct, label: "iteration"});
   chart($("r-ev"), [{name: "Explained variance", color: "--s1", pts: P(x => x.ev)}], {fmt: num, label: "iteration"});
   chart($("r-ent"), [{name: "Entropy", color: "--s1", pts: P(x => x.entropy)}], {fmt: num, label: "iteration"});

@@ -554,6 +554,39 @@ every knob documented at its top):
   map's production): Maxime's idea of training the economy alone. Cheap (one forward pass per
   turn) and noise-free on the opponent side: the cleanest test of whether the algorithm can
   improve anything. `eval_checkpoints.py --solo` scores checkpoints on the solo benchmark.
+- Run solo1 (from bc4, 192 solo games per iteration cut at turn 150, frame credit, teacher KL
+  0.02, 50% of frames): the solo benchmark at turn 150 fell 2,562 -> 2,478 (iter 10) -> 2,439
+  (iter 20). The in-training production share swung 0.40-0.65 between iterations from the map
+  draws alone, so never judge a run on it. Third PPO run to get worse or stay flat: the updates
+  are mostly noise, and a noisy step from a trained policy is usually a step down.
+
+### bc4 and DAgger (2026-10-18)
+
+- bc4: bc3's weights fine-tuned on 3,200 teacher games (`rl/data/train`, `rl/data/train2`, 2M
+  frames), 40k steps, lr 5e-4. Validation loss 0.194 (bc3 0.217), move recall 69% (66%), solo
+  benchmark 2,562 at turn 150 (2,463; DexBot 2,587). Same seeds (23), 100 games each, bc4 vs the
+  released bc3: 1v1 pool 95 vs 94, ffa4 72 vs 71, ffa6 74 vs 77, 1v1 DexBot 26 vs 24, 1v1
+  ApexGamma 33 vs 34. Better imitation no longer turns into wins: the cloning plateau (errors
+  compound in positions the teacher never reached). Not released.
+- DAgger: `rl/target/release/dagger` (rl/src/bin/dagger.rs, std only, outside the starter kit so
+  the arena ignores it) plays the network's argmax while a shadow DexBot process gets the same
+  frames; DexBot's answers for our sites are written per turn to a `.dag` file (format in the
+  file's doc). `rl/gen_dagger.py --weights W --games 1500` plays one DAgger seat per game against
+  DexBot (half the seats) and the other strong bots: 1,500 games in about 25 minutes, 1.8 GB. In
+  those positions DexBot moves 26% of our sites (18% in its own games). The trainer reads `.dag`
+  files and weights directories with `dir*k`.
+- dag1 (bc4 + teacher data + `dagger1*3`, 20k steps, lr 3e-4): clearly worse. Same seeds, 100
+  games: 1v1 pool 80 (bc4 95), ffa4 63 (72), 1v1 DexBot 10 (26); validation loss on DexBot's own
+  games 0.213 (0.194). The mid-run checkpoint (step 8,000) already had 12% vs DexBot.
+- The labels are right: with `DAGGER_BETA=1` the wrapper plays the shadow's recorded answers and
+  wins 52.5% of 40 1v1s vs DexBot (DexBot vs itself). DexBot recomputes everything from the frame
+  (its only cross-turn state is the sticky `in_combat`, the turn and an RNG), so its answers in
+  our positions mean what they should. Untested explanations: 3x weight on mostly losing
+  positions (we lose 3 in 4 of these games) teaches desperate play that leaks into normal
+  positions the features cannot tell apart; DexBot's chessboard (x + y + turn parity) makes its
+  per-site moves look random to a network that only sees turn / limit; capacity (106k params)
+  shared between two distributions. Next to try if DAgger is resumed: weight 1, beta 0.5
+  (expert plays half the turns, so states stay near its own), or only the turns before contact.
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

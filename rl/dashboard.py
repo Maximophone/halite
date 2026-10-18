@@ -66,6 +66,14 @@ def parse_run(path):
             elif m := MODEL.match(line):
                 run["params"] = int(m[3])
                 run["model"] = "%s ch, dilations %s" % (m[1], m[2])
+    # checkpoint evaluations written by rl/eval_checkpoints.py (solo benchmark lines)
+    run["solo_evals"] = []
+    ev = os.path.join(os.path.dirname(path), "evals.txt")
+    if os.path.exists(ev):
+        for line in open(ev, errors="replace"):
+            m = re.match(r"iter(\d+)\s+solo\s+production turn 60 ([\d.]+)\s+turn 100 ([\d.]+)\s+turn 150 ([\d.]+)", line)
+            if m:
+                run["solo_evals"].append({"iter": int(m[1]), "t60": float(m[2]), "t100": float(m[3]), "t150": float(m[4])})
     run["updated"] = os.path.getmtime(path)
     return run
 

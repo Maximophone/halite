@@ -43,9 +43,9 @@ struct Game {
     teachers: Vec<u8>,  // player tags whose moves we imitate
     /// how many times each of its frames enters the sampling index (`--data dir*k`)
     weight: usize,
-    /// learn only from our sites within 3 steps of an enemy (`--data dir*k@front`): the moves an
-    /// expert-iteration search changed; elsewhere its labels are the old network's own moves
-    front_only: bool,
+    /// learn only from our sites within 3 steps of an enemy (`--data dir*k@front`, 1): the moves an
+    /// expert-iteration search changed; or only from the others (`@nofront`, 2, a control); 0 all
+    front_only: u8,
 }
 
 fn load_game(path: &Path, teacher: &str) -> Option<Game> {
@@ -68,7 +68,7 @@ fn load_game(path: &Path, teacher: &str) -> Option<Game> {
     let teachers = v["player_names"].as_array()?.iter().enumerate()
         // --teacher may list several names, comma separated (e.g. DexBot,NeuroBeta for mixed data)
         .filter(|(_, n)| n.as_str().map_or(false, |n| teacher.split(',').any(|t| t == n))).map(|(i, _)| i as u8 + 1).collect();
-    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers, weight: 1, front_only: false })
+    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers, weight: 1, front_only: 0 })
 }
 
 /// A DAgger file written by `dagger` (see src/bin/dagger.rs): positions our policy reached, with
@@ -95,7 +95,7 @@ fn load_dag(path: &Path) -> Option<Game> {
         moves.extend_from_slice(&b[o + 2 * n..o + 3 * n]);
     }
     // frames = records + 1 so that every record (which all carry labels) is a training frame
-    Some(Game { w, h, frames: recs + 1, prod, owners, strengths, moves, teachers: vec![tag], weight: 1, front_only: false })
+    Some(Game { w, h, frames: recs + 1, prod, owners, strengths, moves, teachers: vec![tag], weight: 1, front_only: 0 })
 }
 
 fn load_dir(dir: &str, teacher: &str, max_games: usize) -> Vec<Game> {
@@ -230,9 +230,9 @@ fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
         // every frame weighs the same in the loss, however many sites the player owns: otherwise
         // the opening (one site) is drowned by mid-game frames with hundreds of sites.
         // Front-only games count just our sites within 3 steps of an enemy.
-        let counted: Vec<bool> = if g.front_only {
+        let counted: Vec<bool> = if g.front_only > 0 {
             let d = enemy_distance(w0, h0, own, s.player);
-            (0..n).map(|i| own[i] == s.player && d[i] <= 3).collect()
+            (0..n).map(|i| own[i] == s.player && (d[i] <= 3) == (g.front_only == 1)).collect()
         } else {
             own.iter().map(|&o| o == s.player).collect()
         };
@@ -588,9 +588,12 @@ fn train() -> Result<()> {
     // frames k times in the sampling (e.g. DAgger data next to the larger teacher data)
     let mut all_games = Vec::new();
     for d in get("data", "rl/data/train").split(',') {
-        let (d, front_only) = match d.strip_suffix("@front") {
-            Some(d) => (d, true),
-            None => (d, false),
+        let (d, front_only) = if let Some(d) = d.strip_suffix("@nofront") {
+            (d, 2)
+        } else if let Some(d) = d.strip_suffix("@front") {
+            (d, 1)
+        } else {
+            (d, 0)
         };
         let (dir, k) = match d.split_once('*') {
             Some((dir, k)) => (dir, k.parse::<usize>().unwrap()),

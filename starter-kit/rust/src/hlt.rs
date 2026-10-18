@@ -9,6 +9,9 @@ use std::io::{self, BufRead, Write};
 /// Neural policy (features, std-only forward pass), shared with the rl/ trainer.
 pub mod nn;
 
+/// The neural bots with search (NeuroBeta, NeuroGamma).
+pub mod neuro_search;
+
 pub const STILL: u8 = 0;
 pub const NORTH: u8 = 1;
 pub const EAST: u8 = 2;

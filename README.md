@@ -50,7 +50,7 @@ python3 halite.py -d "40 40" -s 2016 -o examples $B/predator_bot $B/improved_bot
 | `engine/` | Optional Rust engine (`halite` binary): same CLI, maps, rules and replays as `halite.py`, about 5x faster |
 | `tools/` | Bot-building tools: `eval_bot.py` (win rates vs an opponent pool), `solo_bench.py` (expansion speed), `trace_game.py` (one game's economy over time) |
 | `check_engine.py` | Proves the Rust engine plays exactly the same games as `halite.py` |
-| `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha`, `apex_beta`, `apex_gamma` (strongest), `hal_lite`, `dex_bot` and `erdman_bot` (strongest; ports of David Ma's, Declan Groves' and Travis Erdman's 2016 bots, Erdman's being the winner), `neuro_alpha` (a neural network trained to imitate DexBot) |
+| `starter-kit/rust/` | Starter kit (no external crates): the `hlt` module and the bots `my_bot` (yours, starts random), `random_bot`, `improved_bot`, `predator_bot`, `apex_alpha`, `apex_beta`, `apex_gamma` (strongest), `hal_lite`, `dex_bot` and `erdman_bot` (strongest; ports of David Ma's, Declan Groves' and Travis Erdman's 2016 bots, Erdman's being the winner), `neuro_alpha` (a neural network trained to imitate DexBot), `neuro_beta` and `neuro_gamma` (the network plus a one-turn combat search; NeuroGamma beats DexBot about 2 games in 3) |
 | `rl/` | Training for the neural bot (Rust with the candle crate, Apple GPU via Metal) and a live training dashboard |
 
 ## Options

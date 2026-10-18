@@ -36,7 +36,7 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"), `neuro_beta` and `neuro_gamma` (the network plus a one-turn combat search, `src/neuro_search.rs`; NeuroGamma is the strongest neural bot). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
 | `rl/` | Neural training, the one place with crates (Maxime chose candle on Metal, 2026-10-17): `src/main.rs` (`halite-rl train`, `parity`, `bench`), `src/metal_conv.rs` (hand-written Metal kernels for the wrap-around conv), `gen_data.py` (teacher games), `dashboard.py` + `dashboard.html` (live training curves, port 8090). See "Neural line" |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
@@ -671,6 +671,31 @@ every predicted rival).
   front NeuroBeta's label is just the old network's move). Round 1b keeps the DexBot data and adds
   the new games at 2x (`dir*2`), in one variant counting only our sites within 3 of an enemy
   (`dir*2@front`, where the search acts). `--teacher` takes several names (DexBot,NeuroBeta).
+- Round 1b and a control, each from bc3, 10k steps; the network alone, pool 1v1 / vs DexBot:
+  DexBot data + NeuroBeta games at 2x, all sites: 78 / 12; same, NeuroBeta games front sites only:
+  24 / 2; NeuroBeta games without front sites (control, pure self-imitation on our own
+  positions): 87 / 25 (bc3: 94 / 24). The search rewrites only 3.4% of our site-moves
+  (`NEURO_DEBUG=1`, 3 games), yet those moves are what poison the network: the more weight they
+  get, the worse it plays. The search is myopic (one turn of material); its moves are safe only
+  as corrections on top of the network's long-term moves (and behind a margin), and distilled
+  they replace that judgement. Expert iteration needs a search whose score includes a long-term
+  value estimate (a learned value at the leaves, the full AlphaZero recipe). Not done yet.
+
+### NeuroGamma (2026-10-18)
+
+The search moved into `starter-kit/rust/src/neuro_search.rs` (`hlt::neuro_search::run(name,
+pred)`); `neuro_beta.rs` (pred 0.6, frozen as released) and `neuro_gamma.rs` (pred 1.0) are a few
+lines each. Refactored NeuroBeta = old binary, and NeuroGamma = old binary with `NEURO_PRED=1.0`,
+on 4 seeds vs DexBot, identical games.
+
+Sweep, NeuroBeta 1v1 vs DexBot, 100 games, seed 23 (default 53%): `NEURO_BIAS` 0.5 / 2: 52 / 52;
+`NEURO_ZONE` 4: 46; `NEURO_PRED` 0.4 / 0.8 / 0.9 / 1.0: 40 / 57 / 60 / 62. Fresh seed 29, 200
+games: pred 0.6 59%, pred 1.0 67%. ApexBeta's 0.6 was tuned for predictions from a hand-written
+policy (about 70% accurate); the network imitates real play and is worth trusting fully.
+Suite (seed 23), NeuroGamma vs NeuroBeta: pool 1v1 96 (95), ffa4 80 (78), ffa6 83 (77), DexBot
+62 (53), ApexGamma 56 (56), ErdmanBot 9 (10).
+NeuroBeta with the bc4 network instead of bc3: 96 / 76 / 79 / 51 / 44 / 7, no better (worse vs
+ApexGamma): better imitation again did not turn into wins.
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

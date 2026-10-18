@@ -26,6 +26,7 @@
     --s1: #3987e5; --s2: #d95926; --good: #0ca30c;
   }
   * { box-sizing: border-box; }
+  [hidden] { display: none !important; }   /* .grid sets display, which would override hidden */
   body { margin: 0; background: var(--page); color: var(--ink);
     font: 14px/1.4 system-ui, -apple-system, "Segoe UI", sans-serif; }
   main { max-width: 1180px; margin: 0 auto; padding: 20px 16px 40px; }
@@ -82,10 +83,10 @@
   <div id="content">
     <div class="tiles" id="tiles"></div>
     <div class="grid" id="rlgrid" hidden>
-      <div class="card"><h2>Learner vs frozen opponents: rank score</h2><div class="sub">Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.</div>
-        <div class="legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
+      <div class="card"><h2 id="r-score-title">Learner vs frozen opponents: rank score</h2><div class="sub" id="r-score-sub">Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.</div>
+        <div class="legend" id="r-score-legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
         <svg id="r-score"></svg><div class="tip"></div></div>
-      <div class="card"><h2>Learner vs frozen opponents: win rate</h2><div class="sub">Share of seats that finish first, same games, mean of the last 10 iterations</div>
+      <div class="card" id="r-win-card"><h2>Learner vs frozen opponents: win rate</h2><div class="sub">Share of seats that finish first, same games, mean of the last 10 iterations</div>
         <div class="legend"><span><i style="background:var(--s1)"></i>Learner</span><span><i style="background:var(--s2)"></i>Frozen opponents</span></div>
         <svg id="r-win"></svg><div class="tip"></div></div>
       <div class="card"><h2>Value head: explained variance</h2><div class="sub">How much of the returns the value head predicts (1 = all); the advantages are only as good as this</div>
@@ -311,13 +312,25 @@ function renderRL(r) {
   tiles.appendChild(tile("Iteration", `${n} / ${r.total}`, (100 * n / r.total).toFixed(1) + "%", n / r.total));
   tiles.appendChild(tile("Time per iteration", last ? secs.toFixed(0) + " s" : "-", last ? "rollout " + last.rollout + " s of " + last.secs : ""));
   tiles.appendChild(tile("Time left", live && last ? dur((r.total - n) * secs) : "-", live ? "at the current speed" : ""));
-  tiles.appendChild(tile("Rank score, last 10", last ? avg(x => x.score).toFixed(3) : "-", last ? "frozen opponents " + avg(x => x.score_frozen).toFixed(3) : ""));
-  tiles.appendChild(tile("Win rate, last 10", last ? (100 * avg(x => x.win)).toFixed(1) + "%" : "-", last ? "frozen opponents " + (100 * avg(x => x.win_frozen)).toFixed(1) + "%" : ""));
+  if (it.length && it.every(x => x.games === 0 && x.solo_games > 0)) {
+    tiles.appendChild(tile("Solo production share, last 10", (100 * avg(x => x.solo)).toFixed(1) + "%", "of the whole map, at the end of each solo game"));
+  } else {
+    tiles.appendChild(tile("Rank score, last 10", last ? avg(x => x.score).toFixed(3) : "-", last ? "frozen opponents " + avg(x => x.score_frozen).toFixed(3) : ""));
+    tiles.appendChild(tile("Win rate, last 10", last ? (100 * avg(x => x.win)).toFixed(1) + "%" : "-", last ? "frozen opponents " + (100 * avg(x => x.win_frozen)).toFixed(1) + "%" : ""));
+  }
   tiles.appendChild(tile("Entropy", last ? last.entropy.toFixed(3) : "-", last ? "KL " + last.kl.toFixed(4) + " · clipped " + (100 * last.clip).toFixed(1) + "%" : ""));
   const num = (v, tip, step) => v.toFixed(tip ? 3 : Math.max(0, Math.min(4, -Math.floor(Math.log10(step) + 1e-9))));
   const pct = (v, tip, step) => (100 * v).toFixed(tip ? 1 : Math.max(0, -Math.floor(Math.log10(100 * step) + 1e-9))) + "%";
   const P = f => it.map(x => [x.iter, f(x)]);
-  chart($("r-score"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.score), 10)},
+  // solo runs (no mixed games): the score chart shows the share of the map's production instead
+  const solo = it.length > 0 && it.every(x => x.games === 0 && x.solo_games > 0);
+  $("r-win-card").hidden = solo;
+  $("r-score-legend").hidden = solo;
+  $("r-score-title").textContent = solo ? "Solo games: share of the map's production at the end" : "Learner vs frozen opponents: rank score";
+  $("r-score-sub").textContent = solo ? "Mean over the iteration's solo games, then over the last 10 iterations (each iteration draws different maps, so single values are noisy)"
+    : "Per seat, 1 = first and 0 = last, in games that mix both; mean of the last 10 iterations. Equal policies score the same.";
+  if (solo) chart($("r-score"), [{name: "Solo production share", color: "--s1", pts: rolling(P(x => x.solo), 10)}], {fmt: pct, label: "iteration"});
+  else chart($("r-score"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.score), 10)},
     {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.score_frozen), 10)}], {fmt: num, label: "iteration"});
   chart($("r-win"), [{name: "Learner", color: "--s1", pts: rolling(P(x => x.win), 10)},
     {name: "Frozen opponents", color: "--s2", pts: rolling(P(x => x.win_frozen), 10)}], {fmt: pct, label: "iteration"});

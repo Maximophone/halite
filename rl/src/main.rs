@@ -40,6 +40,8 @@ struct Game {
     strengths: Vec<u8>, // frames * w * h
     moves: Vec<u8>,     // (frames - 1) * w * h, digits 0-4
     teachers: Vec<u8>,  // player tags whose moves we imitate
+    /// how many times each of its frames enters the sampling index (`--data dir*k`)
+    weight: usize,
 }
 
 fn load_game(path: &Path, teacher: &str) -> Option<Game> {
@@ -61,18 +63,47 @@ fn load_game(path: &Path, teacher: &str) -> Option<Game> {
     }
     let teachers = v["player_names"].as_array()?.iter().enumerate()
         .filter(|(_, n)| n.as_str() == Some(teacher)).map(|(i, _)| i as u8 + 1).collect();
-    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers })
+    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers, weight: 1 })
+}
+
+/// A DAgger file written by `dagger` (see src/bin/dagger.rs): positions our policy reached, with
+/// the expert's moves for our sites. Frame k of the game is record k.
+fn load_dag(path: &Path) -> Option<Game> {
+    let b = std::fs::read(path).ok()?;
+    if b.get(..4)? != b"DAG1" {
+        return None;
+    }
+    let w = u16::from_le_bytes([b[4], b[5]]) as usize;
+    let h = u16::from_le_bytes([b[6], b[7]]) as usize;
+    let tag = b[8];
+    let n = w * h;
+    let prod = b.get(9..9 + n)?.to_vec();
+    let recs = (b.len() - 9 - n) / (3 * n);
+    if recs < 2 {
+        return None;
+    }
+    let (mut owners, mut strengths, mut moves) = (Vec::with_capacity(recs * n), Vec::with_capacity(recs * n), Vec::with_capacity(recs * n));
+    for r in 0..recs {
+        let o = 9 + n + r * 3 * n;
+        owners.extend_from_slice(&b[o..o + n]);
+        strengths.extend_from_slice(&b[o + n..o + 2 * n]);
+        moves.extend_from_slice(&b[o + 2 * n..o + 3 * n]);
+    }
+    // frames = records + 1 so that every record (which all carry labels) is a training frame
+    Some(Game { w, h, frames: recs + 1, prod, owners, strengths, moves, teachers: vec![tag], weight: 1 })
 }
 
 fn load_dir(dir: &str, teacher: &str, max_games: usize) -> Vec<Game> {
     let mut paths: Vec<PathBuf> = std::fs::read_dir(dir).expect("data dir").filter_map(|e| e.ok().map(|e| e.path()))
-        .filter(|p| p.extension().map_or(false, |x| x == "hlt")).collect();
+        .filter(|p| p.extension().map_or(false, |x| x == "hlt" || x == "dag")).collect();
     paths.sort();
     paths.truncate(max_games);
     let chunks: Vec<Vec<PathBuf>> = paths.chunks(paths.len().div_ceil(8).max(1)).map(|c| c.to_vec()).collect();
     let mut games = Vec::new();
     std::thread::scope(|s| {
-        let hs: Vec<_> = chunks.iter().map(|c| s.spawn(move || c.iter().filter_map(|p| load_game(p, teacher)).collect::<Vec<_>>())).collect();
+        let hs: Vec<_> = chunks.iter().map(|c| s.spawn(move || c.iter().filter_map(|p| {
+            if p.extension().map_or(false, |x| x == "dag") { load_dag(p) } else { load_game(p, teacher) }
+        }).collect::<Vec<_>>())).collect();
         for hd in hs {
             games.extend(hd.join().unwrap());
         }
@@ -96,7 +127,9 @@ fn index(games: &[Game]) -> HashMap<(usize, usize), Vec<Sample>> {
             let own = &g.owners[f * n..(f + 1) * n];
             for &p in &g.teachers {
                 if own.contains(&p) {
-                    b.entry((g.w, g.h)).or_default().push(Sample { game: gi as u32, frame: f as u16, player: p });
+                    for _ in 0..g.weight {
+                        b.entry((g.w, g.h)).or_default().push(Sample { game: gi as u32, frame: f as u16, player: p });
+                    }
                 }
             }
         }
@@ -494,10 +527,18 @@ fn train() -> Result<()> {
     say(format!("args: {:?}", std::env::args().collect::<Vec<_>>()));
 
     let t0 = Instant::now();
-    // --data takes one or more directories, comma separated
+    // --data takes one or more directories, comma separated; "dir*k" weights a directory's
+    // frames k times in the sampling (e.g. DAgger data next to the larger teacher data)
     let mut all_games = Vec::new();
     for d in get("data", "rl/data/train").split(',') {
-        all_games.extend(load_dir(d, &teacher, max_games));
+        let (dir, k) = match d.split_once('*') {
+            Some((dir, k)) => (dir, k.parse::<usize>().unwrap()),
+            None => (d, 1),
+        };
+        all_games.extend(load_dir(dir, &teacher, max_games).into_iter().map(|mut g| {
+            g.weight = k;
+            g
+        }));
     }
     let games = std::sync::Arc::new(all_games);
     let val_games = load_dir(&get("val", "rl/data/val"), &teacher, 1000000);

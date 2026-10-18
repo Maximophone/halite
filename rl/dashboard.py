@@ -58,6 +58,9 @@ def parse_run(path):
                                      "kl": float(m[11]), "clip": float(m[12]), "tkl": float(m[13]) if m[13] else None,
                                      "frames": int(m[14]), "turns": int(m[15]),
                                      "rollout": int(m[16]), "secs": int(m[17]), "warmup": "warmup" in m[18]})
+                so = re.search(r"solo ([\d.]+) \((\d+) games\)", m[18])
+                run["iters"][-1]["solo"] = float(so.group(1)) if so else 0.0
+                run["iters"][-1]["solo_games"] = int(so.group(2)) if so else 0
             elif m := INFO.match(line):
                 run["games"], run["samples"] = int(m[1]), int(m[2])
             elif m := MODEL.match(line):

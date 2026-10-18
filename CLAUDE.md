@@ -656,6 +656,21 @@ neuro_beta`), the network is trained on its moves (`--teacher NeuroBeta`), the n
 under the search, repeat. Every label is a searched move, not a noisy game outcome, which is what
 sank PPO here. Games: about 1.6 s each with 8 in parallel (the network runs on the CPU for us and
 every predicted rival).
+
+`rl/eval_suite.py CMD --label L` is the standard evaluation (seed 23, 100 games per format: pool
+1v1 / ffa4 / ffa6, 1v1 vs DexBot, ApexGamma, ErdmanBot) and appends a line to
+`rl/checkpoints/suite.txt`.
+
+- Round 1 (ei1): 2,000 NeuroBeta games (`rl/data/ei1`, opponents DexBot, ApexGamma, ApexDelta,
+  ErdmanBot, HAL-lite), network from bc3 trained 10k steps at lr 3e-4 on NeuroBeta's seats only.
+  Validation on NeuroBeta's moves: loss 0.144, 85% of its moves matched. But NeuroBeta with this
+  network got worse: pool 1v1 80 (95), ffa4 77 (78), ffa6 75 (77), DexBot 38 (53), ApexGamma 53
+  (56), ErdmanBot 11 (10); and the network alone too: pool 1v1 76 (bc3 94), ffa4 68 (71), DexBot
+  13 (24). Two expert-iteration pitfalls: narrow data (no weak aggressive opponents like
+  PredatorBot in those games, and the pool 1v1 collapsed), and a diluted signal (away from the
+  front NeuroBeta's label is just the old network's move). Round 1b keeps the DexBot data and adds
+  the new games at 2x (`dir*2`), in one variant counting only our sites within 3 of an enemy
+  (`dir*2@front`, where the search acts). `--teacher` takes several names (DexBot,NeuroBeta).
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

@@ -43,6 +43,9 @@ struct Game {
     teachers: Vec<u8>,  // player tags whose moves we imitate
     /// how many times each of its frames enters the sampling index (`--data dir*k`)
     weight: usize,
+    /// learn only from our sites within 3 steps of an enemy (`--data dir*k@front`): the moves an
+    /// expert-iteration search changed; elsewhere its labels are the old network's own moves
+    front_only: bool,
 }
 
 fn load_game(path: &Path, teacher: &str) -> Option<Game> {
@@ -63,8 +66,9 @@ fn load_game(path: &Path, teacher: &str) -> Option<Game> {
         moves.extend(m.as_str()?.bytes().map(|b| b - b'0'));
     }
     let teachers = v["player_names"].as_array()?.iter().enumerate()
-        .filter(|(_, n)| n.as_str() == Some(teacher)).map(|(i, _)| i as u8 + 1).collect();
-    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers, weight: 1 })
+        // --teacher may list several names, comma separated (e.g. DexBot,NeuroBeta for mixed data)
+        .filter(|(_, n)| n.as_str().map_or(false, |n| teacher.split(',').any(|t| t == n))).map(|(i, _)| i as u8 + 1).collect();
+    Some(Game { w, h, frames: fr.len(), prod, owners, strengths, moves, teachers, weight: 1, front_only: false })
 }
 
 /// A DAgger file written by `dagger` (see src/bin/dagger.rs): positions our policy reached, with
@@ -91,7 +95,7 @@ fn load_dag(path: &Path) -> Option<Game> {
         moves.extend_from_slice(&b[o + 2 * n..o + 3 * n]);
     }
     // frames = records + 1 so that every record (which all carry labels) is a training frame
-    Some(Game { w, h, frames: recs + 1, prod, owners, strengths, moves, teachers: vec![tag], weight: 1 })
+    Some(Game { w, h, frames: recs + 1, prod, owners, strengths, moves, teachers: vec![tag], weight: 1, front_only: false })
 }
 
 fn load_dir(dir: &str, teacher: &str, max_games: usize) -> Vec<Game> {
@@ -184,6 +188,29 @@ struct Batch {
     mask: Vec<f32>,
 }
 
+/// Wrap-around grid distance from every site to the nearest site of another player.
+fn enemy_distance(w: usize, h: usize, own: &[u8], me: u8) -> Vec<u32> {
+    let n = w * h;
+    let mut d = vec![u32::MAX; n];
+    let mut q = std::collections::VecDeque::new();
+    for i in 0..n {
+        if own[i] != 0 && own[i] != me {
+            d[i] = 0;
+            q.push_back(i);
+        }
+    }
+    while let Some(i) = q.pop_front() {
+        let (x, y) = (i % w, i / w);
+        for j in [((y + h - 1) % h) * w + x, ((y + 1) % h) * w + x, y * w + (x + 1) % w, y * w + (x + w - 1) % w] {
+            if d[j] == u32::MAX {
+                d[j] = d[i] + 1;
+                q.push_back(j);
+            }
+        }
+    }
+    d
+}
+
 fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
     let g0 = &games[samples[0].game as usize];
     let (w0, h0) = (g0.w, g0.h);
@@ -201,14 +228,22 @@ fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
         let mv = &g.moves[f * n..(f + 1) * n];
         let feat = feats(w0, h0, own, st, &g.prod, s.player, f);
         // every frame weighs the same in the loss, however many sites the player owns: otherwise
-        // the opening (one site) is drowned by mid-game frames with hundreds of sites
-        let weight = 1.0 / own.iter().filter(|&&o| o == s.player).count() as f32;
+        // the opening (one site) is drowned by mid-game frames with hundreds of sites.
+        // Front-only games count just our sites within 3 steps of an enemy.
+        let counted: Vec<bool> = if g.front_only {
+            let d = enemy_distance(w0, h0, own, s.player);
+            (0..n).map(|i| own[i] == s.player && d[i] <= 3).collect()
+        } else {
+            own.iter().map(|&o| o == s.player).collect()
+        };
+        let count = counted.iter().filter(|&&c| c).count();
+        let weight = if count > 0 { 1.0 / count as f32 } else { 0.0 };
         for y in 0..h0 {
             for xx in 0..w0 {
                 let i = y * w0 + xx;
                 let j = bi * n + sym_site(w0, h0, sym, xx, y);
                 x[j * nf..(j + 1) * nf].copy_from_slice(&feat[i * nf..(i + 1) * nf]);
-                if own[i] == s.player {
+                if counted[i] {
                     mask[j] = weight;
                     tgt[j] = sym_dir(mv[i], sym) as u32;
                 }
@@ -553,12 +588,17 @@ fn train() -> Result<()> {
     // frames k times in the sampling (e.g. DAgger data next to the larger teacher data)
     let mut all_games = Vec::new();
     for d in get("data", "rl/data/train").split(',') {
+        let (d, front_only) = match d.strip_suffix("@front") {
+            Some(d) => (d, true),
+            None => (d, false),
+        };
         let (dir, k) = match d.split_once('*') {
             Some((dir, k)) => (dir, k.parse::<usize>().unwrap()),
             None => (d, 1),
         };
         all_games.extend(load_dir(dir, &teacher, max_games).into_iter().map(|mut g| {
             g.weight = k;
+            g.front_only = front_only;
             g
         }));
     }

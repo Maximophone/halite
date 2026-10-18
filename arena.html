@@ -72,6 +72,8 @@
   .legend { display: flex; flex-wrap: wrap; gap: 6px 14px; padding: 12px 16px 0; font-size: 12px; color: var(--ink2); }
   .legend button { background: none; border: none; padding: 0; color: inherit; font: inherit; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
   .legend button.dim { opacity: 0.45; }
+  .legend .others { display: contents; color: var(--ink3); }
+  .legend .others button { font-size: 11px; }
   .key { display: inline-block; width: 14px; height: 3px; border-radius: 2px; }
   .sw { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex: none; }
   .sub { color: var(--ink3); text-transform: none; letter-spacing: 0; font-weight: 400; }
@@ -147,7 +149,8 @@
   </section>
 
   <section>
-    <h2><span class="grow">Head to head</span><span class="sub">% of shared games where the row bot finished ahead of the column bot</span></h2>
+    <h2><span class="grow">Head to head <span class="sub" id="h2hSub"></span></span><span class="sub hide-sm">% of shared games where the row bot finished ahead of the column bot</span>
+      <select id="h2hTop"><option value="8">Top 8</option><option value="10">Top 10</option><option value="15">Top 15</option><option value="all">All bots</option></select></h2>
     <div class="chartbox h2h-wrap" id="h2hChart"></div>
   </section>
 
@@ -210,7 +213,7 @@
     $("board").querySelector("tbody").innerHTML = st.leaderboard.map((r, i) => `
       <tr data-bot="${esc(r.bot)}" class="${r.bot === filter ? "sel" : ""}${r.active === false ? " retired" : ""}">
         <td class="${i === 0 ? "rank1" : ""}">${r.active === false ? "" : i + 1}</td>
-        <td class="${i === 0 ? "rank1" : ""}">${esc(r.bot)}${r.active === false ? ' <span class="tag">retired</span>' : ""}</td>
+        <td class="${i === 0 ? "rank1" : ""}"><i class="sw" style="background:${window.arenaColor ? window.arenaColor(r.bot) : "transparent"};margin-right:8px"></i>${esc(r.bot)}${r.active === false ? ' <span class="tag">retired</span>' : ""}</td>
         <td class="num">${r.rating.toFixed(1)}</td>
         <td class="num hide-sm">${r.mu == null ? "-" : r.mu.toFixed(1)}</td>
         <td class="num hide-sm">${r.sigma == null ? "-" : r.sigma.toFixed(2)}</td>
@@ -282,8 +285,30 @@
   const esc = s => String(s).replace(/[&<>"']/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"}[c]));
   let A = null, sel = window.arenaFilter ? window.arenaFilter() : "";
 
-  // Colour follows the bot: slot by order of first appearance, never by rank.
-  const color = bot => { const i = A ? A.order.indexOf(bot) : -1; return i >= 0 && i < 8 ? css(SLOTS[i]) : css("--other"); };
+  // The 8 colours go to the current top 8 active bots of the leaderboard; everyone else is grey.
+  // Sticky: a bot keeps its slot while it stays in the top 8 (remembered across reloads), and a
+  // newcomer takes a freed slot, so colours only change when the top 8 itself changes.
+  let slots = {};
+  try { slots = JSON.parse(localStorage.getItem("arenaSlots") || "{}"); } catch (e) {}
+  function assignSlots() {
+    const board = window.arenaBoard || [];
+    const top = board.filter(r => r.active !== false).slice(0, SLOTS.length).map(r => r.bot);
+    if (!top.length) return false;
+    const next = {};
+    for (const b of top) if (slots[b] !== undefined && !Object.values(next).includes(slots[b])) next[b] = slots[b];
+    for (const b of top) if (next[b] === undefined) next[b] = [...SLOTS.keys()].find(k => !Object.values(next).includes(k));
+    const changed = JSON.stringify(next) !== JSON.stringify(slots);
+    slots = next;
+    if (changed) try { localStorage.setItem("arenaSlots", JSON.stringify(slots)); } catch (e) {}
+    return changed;
+  }
+  // Leaderboard position (active bots first, as on the board); unknown bots last.
+  const rankOf = bot => { const i = (window.arenaBoard || []).findIndex(r => r.bot === bot); return i < 0 ? 1e9 : i; };
+  const byRank = bots => bots.slice().sort((a, b) => rankOf(a) - rankOf(b));
+  const hasSlot = bot => slots[bot] !== undefined;
+  // A selected bot outside the top 8 is drawn in light ink so it still stands out.
+  const color = bot => hasSlot(bot) ? css(SLOTS[slots[bot]]) : bot === sel ? css("--ink2") : css("--other");
+  window.arenaColor = color;
   const pct = (a, b) => b ? Math.round(100 * a / b) : 0;
 
   // Tooltip
@@ -318,8 +343,10 @@
     const box = $("ratingChart"), W = box.clientWidth - 32, H = 260;
     const narrow = W < 520;
     const m = {l: 44, r: sel && !narrow ? 120 : 16, t: 10, b: 26};
-    const bots = A.order.filter(b => A.ratings[b]);
-    const vals = bots.flatMap(b => A.ratings[b].filter(v => v !== null));
+    const bots = byRank(A.order.filter(b => A.ratings[b]));
+    // The axis fits settled ratings: a new bot's first points (rating climbing up from 0 while its
+    // sigma shrinks) are left out of the range and clipped, so they do not squash everyone else.
+    const vals = bots.flatMap(b => { const v = A.ratings[b].filter(v => v !== null); return v.length > 30 ? v.slice(15) : v; });
     box.innerHTML = "";
     if (!vals.length || A.x.length < 2) { box.innerHTML = '<div class="empty" style="padding:0">Not enough games yet.</div>'; return; }
     let lo = Math.min(...vals), hi = Math.max(...vals);
@@ -328,6 +355,7 @@
     const X = v => m.l + (v - x0) / (x1 - x0) * (W - m.l - m.r);
     const Y = v => m.t + (hi - v) / (hi - lo) * (H - m.t - m.b);
     const s = svg(W, H);
+    el(el(s, "clipPath", {id: "plotClip"}), "rect", {x: m.l - 3, y: m.t - 3, width: W - m.l - m.r + 6, height: H - m.t - m.b + 3});
     for (let v = lo; v <= hi; v += st) {
       el(s, "line", {x1: m.l, x2: W - m.r, y1: Y(v), y2: Y(v), stroke: css("--grid"), "stroke-width": 1});
       el(s, "text", {x: m.l - 8, y: Y(v) + 4, "text-anchor": "end", fill: css("--ink3"), "font-size": 11, "font-variant-numeric": "tabular-nums"}, +v.toPrecision(10));
@@ -336,13 +364,15 @@
     for (let v = Math.ceil(x0 / xs) * xs; v <= x1; v += xs)
       el(s, "text", {x: X(v), y: H - 6, "text-anchor": "middle", fill: css("--ink3"), "font-size": 11}, (narrow ? "" : "game ") + compact(v));
     el(s, "line", {x1: m.l, x2: W - m.r, y1: H - m.b, y2: H - m.b, stroke: css("--axis"), "stroke-width": 1});
-    // Selected bot drawn last, on top.
-    const order = bots.filter(b => b !== sel).concat(bots.includes(sel) ? [sel] : []);
+    // Grey bots first and thin, coloured ones above them, the selected bot last, on top.
+    const rest = bots.filter(b => b !== sel);
+    const order = rest.filter(b => !hasSlot(b)).concat(rest.filter(hasSlot).reverse(), bots.includes(sel) ? [sel] : []);
     for (const b of order) {
       let d = "", pen = false;
       A.ratings[b].forEach((v, i) => { if (v === null) { pen = false; return; } d += (pen ? "L" : "M") + X(A.x[i]).toFixed(1) + " " + Y(v).toFixed(1); pen = true; });
-      el(s, "path", {d, fill: "none", stroke: color(b), "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round",
-        opacity: sel && b !== sel ? 0.22 : 1});
+      const top = hasSlot(b) || b === sel;
+      el(s, "path", {d, fill: "none", stroke: color(b), "clip-path": "url(#plotClip)", "stroke-width": b === sel ? 2.5 : top ? 2 : 1.25,
+        "stroke-linejoin": "round", "stroke-linecap": "round", opacity: sel && b !== sel ? (top ? 0.22 : 0.15) : top ? 1 : 0.6});
     }
     if (sel && A.ratings[sel] && !narrow) {
       const last = A.ratings[sel][A.ratings[sel].length - 1];
@@ -364,7 +394,10 @@
     hit.addEventListener("click", () => {});
     box.appendChild(s);
 
-    $("legend").innerHTML = bots.map(b => `<button data-bot="${esc(b)}" class="${sel && b !== sel ? "dim" : ""}"><span class="key" style="background:${color(b)}"></span>${esc(b)}</button>`).join("");
+    const key = b => `<button data-bot="${esc(b)}" class="${sel && b !== sel ? "dim" : ""}"><span class="key" style="background:${color(b)}"></span>${esc(b)}</button>`;
+    const greys = bots.filter(b => !hasSlot(b));
+    $("legend").innerHTML = bots.filter(hasSlot).map(key).join("") +
+      (greys.length ? `<span class="others">${greys.map(key).join("")}</span>` : "");
     $("legend").querySelectorAll("button").forEach(bt => bt.onclick = () => window.arenaSetFilter(bt.dataset.bot === sel ? "" : bt.dataset.bot));
     $("ratingSub").textContent = `games ${compact(A.first_game)} to ${compact(x1)}`;
   }
@@ -376,12 +409,28 @@
     return "#" + x.map((v, i) => Math.round(v + (y[i] - v) * t).toString(16).padStart(2, "0")).join("");
   }
   function lum(h) { const [r, g, b] = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255); return 0.2126 * r + 0.7152 * g + 0.0722 * b; }
+  // How many bots the matrix shows: the top N active ones by rating (plus the selected bot), or all.
+  let h2hTop = "10";
+  try { h2hTop = localStorage.getItem("arenaH2hTop") || h2hTop; } catch (e) {}
+  $("h2hTop").value = h2hTop;
+  $("h2hTop").onchange = e => { h2hTop = e.target.value; try { localStorage.setItem("arenaH2hTop", h2hTop); } catch (x) {} h2hChart(); };
   function h2hChart() {
     const box = $("h2hChart"); box.innerHTML = "";
-    const bots = A.order.filter(b => A.h2h[b]);
+    let bots = byRank(A.order.filter(b => A.h2h[b]));
+    const total = bots.length;
+    if (h2hTop !== "all") {
+      const active = new Set((window.arenaBoard || []).filter(r => r.active !== false).map(r => r.bot));
+      const keep = bots.filter(b => !window.arenaBoard || active.has(b)).slice(0, +h2hTop);
+      bots = bots.filter(b => keep.includes(b) || b === sel);
+    }
+    $("h2hSub").textContent = bots.length < total ? `${bots.length} of ${total} bots, by rating` : "by rating";
     if (bots.length < 2) { box.innerHTML = '<div class="empty" style="padding:0">Not enough games yet.</div>'; return; }
-    const longest = Math.max(...bots.map(b => b.length));
-    const cell = 56, labelW = 130, top = Math.min(110, 18 + longest * 5), W = labelW + cell * bots.length + 60, H = top + cell * bots.length + 30;
+    const longest = Math.min(18, Math.max(...bots.map(b => b.length)));
+    // Cells shrink to fit the panel (down to 30 px, then it scrolls).
+    const labelW = 130, avail = box.clientWidth - 32 - labelW - 50;
+    const cell = Math.max(30, Math.min(52, Math.floor(avail / bots.length)));
+    const top = Math.min(110, 18 + longest * 5), W = labelW + cell * bots.length + 50, H = top + cell * bots.length + 30;
+    const fs = cell < 40 ? 10 : 12;
     const s = svg(W, H); s.style.width = W + "px"; s.style.maxWidth = "none";
     const good = css("--s1"), bad = css("--s8"), mid = css("--neutral");
     bots.forEach((b, j) => {
@@ -402,8 +451,8 @@
         const p = c[0] / c[1], t = Math.min(1, Math.abs(p - 0.5) * 2);
         const fill = mix(mid, p >= 0.5 ? good : bad, t);
         const r = el(s, "rect", {x: x + 1, y: y + 1, width: cell - 2, height: cell - 2, rx: 4, fill});
-        el(s, "text", {x: x + cell / 2, y: y + cell / 2 + 4, "text-anchor": "middle", "font-size": 12, "font-weight": 600,
-          fill: lum(fill) > 0.45 ? "#0b0b0b" : "#f0efec", "pointer-events": "none"}, Math.round(100 * p) + "%");
+        el(s, "text", {x: x + cell / 2, y: y + cell / 2 + fs / 3, "text-anchor": "middle", "font-size": fs, "font-weight": 600,
+          fill: lum(fill) > 0.45 ? "#0b0b0b" : "#f0efec", "pointer-events": "none"}, Math.round(100 * p) + (cell < 40 ? "" : "%"));
         r.addEventListener("mousemove", e => showTip(e, `<div class="hd">${esc(a)} vs ${esc(b)}</div>${esc(a)} finished ahead in <b>${c[0]}</b> of ${c[1]} shared games (${pct(c[0], c[1])}%)`));
         r.addEventListener("mouseleave", hideTip);
         r.style.cursor = "pointer";
@@ -507,11 +556,16 @@
     columns("sizeChart", ["20-25", "26-35", "36-45", "46-50"].filter(k => info.by_size[k]).map(k => [k, ...info.by_size[k]]), c);
   }
 
-  function drawAll() { if (!A) return; botPanel(); ratingChart(); h2hChart(); }
+  function drawAll() { assignSlots(); if (!A) return; botPanel(); ratingChart(); h2hChart(); }
 
   window.arenaSelect = bot => { sel = bot; drawAll(); };
   // Leaderboard numbers refresh every 3 s: keep the panel's tiles in step.
-  window.arenaBoardChanged = () => { if (A && sel) botPanel(); };
+  // A change in the top 8 or the order redraws everything (colours and matrix order follow it).
+  let lastOrder = "";
+  window.arenaBoardChanged = () => {
+    const ord = (window.arenaBoard || []).map(r => r.bot).join(",");
+    if (assignSlots() || ord !== lastOrder) { lastOrder = ord; drawAll(); } else if (A && sel) botPanel();
+  };
   $("botClose").onclick = () => window.arenaSetFilter("");
   async function load() {
     try { A = await (await fetch("/api/analytics")).json(); drawAll(); } catch (e) {}

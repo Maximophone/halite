@@ -114,14 +114,16 @@ kernel void conv_wgrad(device const float* in [[buffer(0)]], device const float*
 // per tap the 32 shifted input rows are staged in threadgroup memory (zero padded to cinp, a power
 // of two >= 8, so the staging loop has no division) and multiplied 8x8 block by 8x8 block with the
 // tap's weights, read straight from device memory when Cin is a multiple of 8.
-// Needs Cout a multiple of 8, Cin and Cout <= 64.
+// Needs Cout a multiple of 8, Cin and Cout <= 32. Threadgroup memory is kept small (about 7 KB) on
+// purpose: several threadgroups per GPU core hide the latency of the scattered neighbour reads
+// (halving it made this kernel 1.8x faster; 128-pixel tiles with 24 KB were 2x slower).
 kernel void conv_fwd_sg(device const float* in [[buffer(0)]], device const float* wt [[buffer(1)]],
                         device float* out [[buffer(2)]], constant P& p [[buffer(3)]],
                         device const float* bias [[buffer(4)]],
                         uint tg [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
                         uint sg [[simdgroup_index_in_threadgroup]]) {
-    threadgroup float As[32 * 64];
-    threadgroup float Ws[64 * 64];
+    threadgroup float As[32 * 32];
+    threadgroup float Ws[16 * 32];   // only for Cin not a multiple of 8 (padded to 16)
     threadgroup int base[9 * 32];   // input offset of each tap's neighbour, -1 past the last pixel
     uint cinp = p.chunks;           // host passes the padded Cin in the chunks field
     uint npix = p.b * p.h * p.w;
@@ -190,15 +192,15 @@ kernel void conv_fwd_sg(device const float* in [[buffer(0)]], device const float
 // over one chunk of pixels. Threadgroup per (tap, chunk), 4 simdgroups; simdgroup s owns the 8-row
 // blocks of input channels s and s + 4. Pixel tiles of 32 are staged in threadgroup memory (input
 // padded to cinp, a power of two; addresses walked incrementally, no division per element) and read
-// back transposed. Needs Cout a multiple of 8, Cin and Cout <= 64. p.chunks = number of chunks,
+// back transposed. Needs Cout a multiple of 8, Cin and Cout <= 32. p.chunks = number of chunks,
 // p.relu carries cinp here.
 kernel void conv_wgrad_sg(device const float* in [[buffer(0)]], device const float* gy [[buffer(1)]],
                           device float* part [[buffer(2)]], constant P& p [[buffer(3)]],
                           uint tg [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]],
                           uint sg [[simdgroup_index_in_threadgroup]]) {
-    threadgroup float sm[4096];          // staging (2 x 32 x 64), then the [cinp][cout] result
+    threadgroup float sm[2048];            // staging (2 x 32 x 32), then the [cinp][cout] result
     threadgroup float* As = sm;            // [32 pixels][cinp]
-    threadgroup float* Gs = sm + 32 * 64;  // [32 pixels][cout]
+    threadgroup float* Gs = sm + 32 * 32;  // [32 pixels][cout]
     threadgroup int base[32];
     uint k = tg % 9, s = tg / 9;
     uint cinp = p.relu;
@@ -261,6 +263,33 @@ kernel void conv_wgrad_sg(device const float* in [[buffer(0)]], device const flo
     uint nout = p.cin * p.cout;
     for (uint i = tid; i < nout; i += 128) part[(s * 9 + k) * nout + i] = sm[i];
 }
+
+
+// Partial sums over pixels: in (B, N, C) contiguous -> part (B, S, C), threadgroup (b, s) sums
+// the pixels of chunk s of image b. Thread t handles channel t % C and every (256 / C)-th pixel,
+// then the threads of each channel are summed through threadgroup memory. p.b = B, p.h = N,
+// p.cin = C (<= 256), p.chunks = S.
+kernel void pixel_sum(device const float* in [[buffer(0)]], device const float* unused [[buffer(1)]],
+                      device float* part [[buffer(2)]], constant P& p [[buffer(3)]],
+                      uint tg [[threadgroup_position_in_grid]], uint tid [[thread_index_in_threadgroup]]) {
+    threadgroup float acc[256];
+    uint b = tg / p.chunks, s = tg % p.chunks;
+    uint c = tid % p.cin, lanes = 256 / p.cin, r = tid / p.cin;
+    uint per = (p.h + p.chunks - 1) / p.chunks;
+    uint start = s * per, end = min(p.h, start + per);
+    float v = 0.0f;
+    if (r < lanes) {
+        device const float* src = in + b * p.h * p.cin + c;
+        for (uint i = start + r; i < end; i += lanes) v += src[i * p.cin];
+    }
+    acc[tid] = v;
+    threadgroup_barrier(mem_flags::mem_threadgroup);
+    if (tid < p.cin) {
+        float t = 0.0f;
+        for (uint k = 0; k < lanes; k++) t += acc[k * p.cin + tid];
+        part[(b * p.chunks + s) * p.cin + tid] = t;
+    }
+}
 "#;
 
 #[repr(C)]
@@ -293,7 +322,7 @@ fn pipeline(dev: &candle_core::MetalDevice, name: &'static str) -> Result<Comput
         return Ok(p);
     }
     let lib = dev.metal_device().new_library_with_source(SRC, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
-    for n in ["conv_fwd", "conv_wgrad", "relu_mask", "conv_fwd_sg", "conv_wgrad_sg"] {
+    for n in ["conv_fwd", "conv_wgrad", "relu_mask", "conv_fwd_sg", "conv_wgrad_sg", "pixel_sum"] {
         let f = lib.get_function(n, None).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
         let p = dev.metal_device().new_compute_pipeline_state_with_function(&f).map_err(|e| candle_core::Error::Msg(format!("{e:?}")))?;
         PIPELINES.with(|m| m.borrow_mut().insert(n, p));
@@ -306,6 +335,27 @@ fn pipeline(dev: &candle_core::MetalDevice, name: &'static str) -> Result<Comput
 /// With `groups`, dispatches that many threadgroups of 128 threads instead.
 fn launch(name: &'static str, ins: &[(&MetalStorage, &Layout)], p: Params, threads: usize, n_out: usize) -> Result<MetalStorage> {
     launch_with(name, ins, p, threads, None, n_out)
+}
+
+fn launch_groups256(name: &'static str, ins: &[(&MetalStorage, &Layout)], p: Params, groups: usize, n_out: usize) -> Result<MetalStorage> {
+    let dev = ins[0].0.device();
+    let out = dev.new_buffer(n_out, DType::F32, name)?;
+    let pl = pipeline(dev, name)?;
+    let guard = dev.command_encoder()?;
+    let enc: &candle_metal_kernels::metal::ComputeCommandEncoder = guard.as_ref();
+    enc.set_compute_pipeline_state(&pl);
+    for (k, (st, l)) in ins.iter().enumerate() {
+        if !l.is_contiguous() || st.dtype() != DType::F32 {
+            bail!("{name}: inputs must be contiguous f32");
+        }
+        let idx = if k < 2 { k } else { k + 2 };
+        enc.set_input_buffer(idx, Some(st.buffer()), l.start_offset() * 4);
+    }
+    enc.set_output_buffer(2, Some(&out), 0);
+    enc.set_bytes(3, &p);
+    enc.dispatch_thread_groups(MTLSize { width: groups, height: 1, depth: 1 }, MTLSize { width: 256, height: 1, depth: 1 });
+    drop(guard);
+    Ok(MetalStorage::new(out, dev.clone(), n_out, DType::F32))
 }
 
 fn launch_with(name: &'static str, ins: &[(&MetalStorage, &Layout)], p: Params, threads: usize, groups: Option<usize>, n_out: usize) -> Result<MetalStorage> {
@@ -338,7 +388,8 @@ fn launch_with(name: &'static str, ins: &[(&MetalStorage, &Layout)], p: Params, 
 pub static MATRIX_UNITS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
 
 fn use_sg(cin: usize, cout: usize) -> bool {
-    MATRIX_UNITS.load(std::sync::atomic::Ordering::Relaxed) && matches!(cout, 8 | 16 | 32 | 64) && cin <= 64
+    // a Cin that is not a multiple of 8 is staged with its weights, in room for 16 padded channels
+    MATRIX_UNITS.load(std::sync::atomic::Ordering::Relaxed) && matches!(cout, 8 | 16 | 32) && cin <= 32 && (cin % 8 == 0 || cin <= 16)
 }
 
 /// Cin padded to a power of two >= 8 (the matrix kernels' staging needs 128 % cinp == 0).
@@ -488,6 +539,40 @@ impl CustomOp3 for ConvBias {
         p.residual = self.residual as u32;
         let st = conv_launch(&[(s1, l1), (s2, l2), (s3, l3)], p, b * h * w, cin, cout)?;
         Ok((st, Shape::from((b, h, w, cout))))
+    }
+}
+
+/// Mean over the middle dimension: (B, N, C) -> (B, C), no backward (callers detach). candle's
+/// reduction over a middle dimension ran at about 8 GB/s, slower than half a conv layer.
+pub fn pixel_mean(x: &Tensor) -> Result<Tensor> {
+    let (_, n, _) = x.dims3()?;
+    let chunks = (n / 256).clamp(1, 32);
+    x.contiguous()?.apply_op1_no_bwd(&PixelSum { chunks })?.sum(1)? / n as f64
+}
+
+struct PixelSum {
+    chunks: usize,
+}
+
+impl candle_core::CustomOp1 for PixelSum {
+    fn name(&self) -> &'static str {
+        "pixel_sum"
+    }
+
+    fn cpu_fwd(&self, _: &CpuStorage, _: &Layout) -> Result<(CpuStorage, Shape)> {
+        bail!("pixel_sum has only a Metal implementation")
+    }
+
+    fn metal_fwd(&self, st: &MetalStorage, l: &Layout) -> Result<(MetalStorage, Shape)> {
+        let (b, n, c) = l.shape().dims3()?;
+        if c > 256 {
+            bail!("pixel_sum: at most 256 channels");
+        }
+        let mut p = Params::new(b, n, 0, c, 0, 0);
+        p.chunks = self.chunks as u32;
+        let groups = b * self.chunks;
+        let out = launch_groups256("pixel_sum", &[(st, l), (st, l)], p, groups, groups * c)?;
+        Ok((out, Shape::from((b, self.chunks, c))))
     }
 }
 

@@ -21,7 +21,7 @@ STEP = re.compile(r"^step\s+(\d+)\s+loss ([\d.]+)\s+acc ([\d.]+)\s+lr ([\d.e+-]+
 EVAL = re.compile(r"^eval step (\d+)\s+val loss ([\d.]+)\s+acc ([\d.]+)\s+move recall ([\d.]+)")
 INFO = re.compile(r"^(\d+) games, (\d+) samples")
 ITER = re.compile(r"^iter\s+(\d+)\s+win ([\d.]+) vs frozen ([\d.]+)\s+rank score ([\d.]+) vs ([\d.]+)\s+\((\d+) mixed games\)\s+"
-                  r"pg ([-+\d.e]+)\s+value ([\d.e+-]+)\s+expl var ([-\d.e+]+)\s+entropy ([\d.e+-]+)\s+kl ([-\d.e+]+)\s+clip ([\d.e+-]+)\s+"
+                  r"pg ([-+\d.e]+)\s+value ([\d.e+-]+)\s+expl var ([-\d.e+]+)\s+entropy ([\d.e+-]+)\s+kl ([-\d.e+]+)\s+clip ([\d.e+-]+)\s+(?:teacher kl ([-\d.e+]+)\s+)?"
                   r"frames (\d+)\s+turns (\d+)\s+rollout (\d+)s.*total (\d+)s(.*)$")
 MODEL = re.compile(r"^model: (\d+) channels, dilations \[([\d, ]+)\], (\d+) parameters")
 
@@ -55,8 +55,9 @@ def parse_run(path):
                 run["iters"].append({"iter": int(m[1]), "win": float(m[2]), "win_frozen": float(m[3]),
                                      "score": float(m[4]), "score_frozen": float(m[5]), "games": int(m[6]),
                                      "pg": float(m[7]), "value": float(m[8]), "ev": float(m[9]), "entropy": float(m[10]),
-                                     "kl": float(m[11]), "clip": float(m[12]), "frames": int(m[13]), "turns": int(m[14]),
-                                     "rollout": int(m[15]), "secs": int(m[16]), "warmup": "warmup" in m[17]})
+                                     "kl": float(m[11]), "clip": float(m[12]), "tkl": float(m[13]) if m[13] else None,
+                                     "frames": int(m[14]), "turns": int(m[15]),
+                                     "rollout": int(m[16]), "secs": int(m[17]), "warmup": "warmup" in m[18]})
             elif m := INFO.match(line):
                 run["games"], run["samples"] = int(m[1]), int(m[2])
             elif m := MODEL.match(line):

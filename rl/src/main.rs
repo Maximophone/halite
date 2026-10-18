@@ -312,12 +312,14 @@ impl Model {
         let hd = hid.detach();
         let xf = x.reshape((bs, h * w, nn::NUM_FEATURES))?;
         let mine = xf.narrow(2, 0, 1)?;
-        let count = mine.sum(1)?.clamp(1.0, f64::MAX)?;
-        let mean_mine = hd.broadcast_mul(&mine)?.sum(1)?.broadcast_div(&count)?;
+        let count = (metal_conv::pixel_mean(&mine)? * (h * w) as f64)?.clamp(1.0, f64::MAX)?;
+        let mean_mine = (metal_conv::pixel_mean(&hd.broadcast_mul(&mine)?)? * (h * w) as f64)?.broadcast_div(&count)?;
         let prod = xf.narrow(2, 4, 1)?;
-        let my_prod = (&mine * &prod)?.mean(1)?;
-        let enemy_prod = (xf.narrow(2, 1, 1)? * &prod)?.mean(1)?;
-        let feats = Tensor::cat(&[hd.mean(1)?, mean_mine, xf.mean(1)?, my_prod, enemy_prod], 1)?;
+        let my_prod = (&mine * &prod)?;
+        let enemy_prod = (xf.narrow(2, 1, 1)? * &prod)?;
+        // one pass over the pixels for all the map means the value head reads
+        let means = metal_conv::pixel_mean(&Tensor::cat(&[&hd, &xf, &my_prod, &enemy_prod], 2)?)?;
+        let feats = Tensor::cat(&[means.narrow(1, 0, c)?, mean_mine, means.narrow(1, c, nn::NUM_FEATURES + 2)?], 1)?;
         let hv = feats.matmul(&self.value_w1)?.broadcast_add(&self.value_b1)?.relu()?;
         let value = hv.matmul(&self.value_w2)?.broadcast_add(&self.value_b2)?.tanh()?.squeeze(1)?;
         Ok((logits, value))
@@ -333,7 +335,7 @@ impl Model {
             let mut hcur = x.contiguous()?.apply_op3(&self.stem_w, &gb, metal_conv::FusedConv { d: 1, residual: false, input_grad: false, global: None })?;
             for ((wt, b, g), &d) in self.blocks.iter().zip(&self.dil) {
                 // the mean is detached: FusedConv's backward adds its gradient path itself
-                let gb = hcur.reshape((bs, h * w, c))?.mean(1)?.detach().matmul(g)?.broadcast_add(b)?.contiguous()?;
+                let gb = metal_conv::pixel_mean(&hcur.reshape((bs, h * w, c))?)?.detach().matmul(g)?.broadcast_add(b)?.contiguous()?;
                 let op = metal_conv::FusedConv { d, residual: true, input_grad: true, global: Some(g.detach()) };
                 hcur = hcur.apply_op3(wt, &gb, op)?;
             }
@@ -625,6 +627,12 @@ fn bench() -> Result<()> {
             diff(&outs[0][0], &outs[1][0])?, diff(&outs[0][1], &outs[1][1])?, diff(&outs[0][2], &outs[1][2])?,
             mag(&outs[1][0])?, mag(&outs[1][1])?, mag(&outs[1][2])?);
     }
+    // pixel_mean against candle's mean, odd sizes included
+    for &(b, n, c) in &[(3usize, 7usize, 11usize), (26, 2500, 32), (5, 1225, 77), (2, 600, 256)] {
+        let t = Tensor::randn(0f32, 1., (b, n, c), &dev)?;
+        let d = (metal_conv::pixel_mean(&t)? - t.mean(1)?)?.abs()?.max_all()?.to_scalar::<f32>()?;
+        println!("pixel_mean ({b}, {n}, {c}) vs candle: max diff {d:.1e}");
+    }
     // matrix-unit kernels against the scalar ones, same inputs
     {
         let sync = |t: &Tensor| -> Result<()> { t.flatten_all()?.narrow(0, 0, 1)?.to_vec1::<f32>().map(|_| ()) };
@@ -670,7 +678,8 @@ fn bench() -> Result<()> {
             metal_conv::MATRIX_UNITS.store(sg, Relaxed);
             let out = model.forward(&x)?;
             let g = (&out * &probe)?.sum_all()?.backward()?;
-            let grads: Vec<Tensor> = varmap.all_vars().iter().map(|v| g.get(v).unwrap().clone()).collect();
+            // the value head gets no gradient from this policy-only probe
+            let grads: Vec<Tensor> = varmap.all_vars().iter().filter_map(|v| g.get(v).cloned()).collect();
             runs.push((out, grads));
         }
         let rel = |a: &Tensor, c: &Tensor| -> Result<f32> {
@@ -740,7 +749,9 @@ fn bench() -> Result<()> {
         let t2 = t.elapsed().as_secs_f64();
         let g = loss.backward()?;
         for v in varmap.all_vars() {
-            sync(g.get(&v).unwrap())?;
+            if let Some(gv) = g.get(&v) {
+                sync(gv)?;
+            }
         }
         let t3 = t.elapsed().as_secs_f64();
         opt.step(&g)?;
@@ -757,6 +768,7 @@ fn bench() -> Result<()> {
         let ops: Vec<(&str, Box<dyn Fn() -> Result<Tensor>>)> = vec![
             ("sum over (h, w) of (26,50,50,32)", Box::new(|| t4.sum((1, 2)))),
             ("mean over pixels of (26,2500,32)", Box::new(|| t4.reshape((26, 2500, 32))?.mean(1))),
+            ("pixel_mean kernel, same", Box::new(|| metal_conv::pixel_mean(&t4.reshape((26, 2500, 32))?))),
             ("sum(0) of wgrad chunks (128,9216)", Box::new(|| part.sum(0))),
             ("relu mask kernel", Box::new(|| t4.apply_op2_no_bwd(&t4, &metal_conv::ReluMask))),
             ("add two (26,50,50,32)", Box::new(|| &t4 + &t4)),

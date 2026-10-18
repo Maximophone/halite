@@ -491,10 +491,53 @@ Training speed (the GPU part; data generation is not a bottleneck):
 - `--conv fused|metal|gather` picks the path (`fused` is the default and uses the matrix kernels
   when Cout is 8, 16, 32 or 64 and Cin <= 64).
 
-Next (not started): RL. Plan: value head; an in-process simulator (game.rs as a library) running
-hundreds of games with all their positions batched into one GPU forward pass per turn; PPO from
-the cloned weights against a pool of past checkpoints plus the hand-written bots; reward = final
-rank with light territory/production shaping that fades out.
+### RL (PPO self-play, started 2026-10-18)
+
+`halite-rl rl --init rl/runs/bc3/model.safetensors --run rl/runs/ppo1 --lr 5e-5` (`src/ppo.rs`,
+every knob documented at its top):
+- Simulator `src/sim.rs`: the engine's own `game.rs` and `pyrandom.rs` included at the crate root
+  plus the engine's game loop (deaths, end, turn limit, ranking). `halite-rl simtest --dir
+  rl/data/val --games 100`: 100/100 engine replays identical (map from the seed, 28,174 frames,
+  end turn, ranking).
+- Rollout: 48 games per iteration in 8 (map side, players) types, so each turn is a few batched
+  forward passes. One seat per game is the learner, other seats are the learner with probability
+  0.5, else a frozen opponent playing argmax (the starting network, then a snapshot every 25
+  iterations, at most 3 kept). Learner moves sampled from softmax(logits / 0.5), the same
+  temperature in the update; at temperature 1 the sampled policy was far weaker than argmax
+  (5% wins per seat against 35%).
+- Reward: final rank (+1 first .. -1 last) at the seat's last turn, plus the change of its share
+  of player-owned production each turn (a potential). GAE (gamma 0.999, lambda 0.95), 25% of
+  learner frames kept for the update, PPO clip 0.2, per-site ratio, each frame weighted equally,
+  entropy 0.003, 2 epochs.
+- Value head: MLP (64) on the *detached* trunk means plus map means of the input planes and of
+  owner x production. With the value loss flowing into the shared trunk, the value-only warmup
+  wrecked the cloned policy (entropy 0.29 -> 0.60, learner wins to 0); detached, warmup leaves the
+  policy exactly unchanged (KL 0) and explains about 45-55% of returns from the start.
+- Speed, first version: about 46 s per iteration for 48 games (rollout 36 s, update 9 s), the
+  rollout GPU bound (`sample` showed 90% waiting on results). Pipelining the per-group forward
+  passes and doubling the games per call changed nothing at that point. What worked:
+  - Occupancy, not tile size: 128-pixel tiles (24 KB of threadgroup memory) were 2x *slower*;
+    shrinking the 32-pixel kernels' threadgroup memory (forward 25 KB -> 7 KB, weight gradient
+    16 KB -> 8 KB, layers limited to 32 channels) made them 2.2x and 3x faster: several
+    threadgroups per core hide the latency of the scattered neighbour reads.
+  - `metal_conv::pixel_mean`: candle's mean over a middle dimension ran at about 8 GB/s; the
+    trunk takes one per block and the value head six. A two-stage kernel is 2x faster and the
+    value head now does one pass for all its means.
+  - Result, steady state with nothing else on the GPU: rollout 2.1x faster (about 800
+    game-turns/s against 380), an iteration of 48 games 29 s against 45 s. Remember that the
+    first iteration of any run includes compiling the GPU kernels: never time it.
+- Run ppo1 (48 games, lr 5e-5, no teacher KL): the policy drifted the wrong way. Learner rank
+  score per seat fell from 0.459 to 0.410 over 19 iterations while the frozen BC net's rose
+  from 0.553 to 0.612 (KL per iteration only about 0.005, entropy stable). Against real bots at
+  iteration 25: 87.5% 1v1 vs the pool (unchanged), 67.5% ffa4 (75%), 12.5% 1v1 vs DexBot (25%).
+  Diagnosis: one advantage per frame spread over hundreds of sites is mostly noise, and a noisy
+  walk away from a cloned optimum makes it worse. Fix in ppo2: `--teacher-kl 0.1`
+  (KL(policy || starting network) per site, what AlphaStar and the Lux AI winners did) and 96
+  games per iteration.
+- Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
+  opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
+  plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,
+  same seeds each time, into `rl/runs/ppo1/evals.txt`.
 
 ## Arena ratings (2026-10-17, replaced multiplayer Elo)
 

@@ -12,6 +12,8 @@
 //! turn, plus `--shaping` x the change of its share of all player-owned production each turn
 //! (a potential, so it does not change what is optimal). GAE, then PPO with a per-site clipped
 //! ratio, each frame weighing the same as in cloning, a value loss and an entropy bonus. The
+//! `--teacher-kl` (0.1) adds KL(policy || starting network) per site to the loss: without it the
+//! noisy per-frame advantage made the cloned policy drift and get worse (run ppo1). The
 //! first `--value-warmup` iterations train only the value head (which reads a detached trunk, so it
 //! never moves the policy).
 //! Writes log.txt ("iter ..." lines), model.safetensors and model.hnn (the bot's format) to --run.
@@ -120,6 +122,7 @@ pub fn run() -> Result<()> {
     let save_every = num("save-every", "5") as usize;
     let seed = num("seed", "1") as u64;
     let temp = num("temp", "0.5");
+    let teacher_kl = num("teacher-kl", "0.1");
     let channels = 32;
     let dil = vec![1, 1, 2, 1, 2, 4, 1, 2, 4, 8];
 
@@ -351,7 +354,7 @@ pub fn run() -> Result<()> {
             let e = &games[k.env].env;
             by_size.entry((e.width(), e.height())).or_default().push(ki);
         }
-        let mut stats = [0f64; 6]; // pg, value, entropy, approx kl, clip fraction, batches
+        let mut stats = [0f64; 7]; // pg, value, entropy, approx kl, clip fraction, batches, teacher kl
         for _ in 0..epochs {
             let mut batches: Vec<Vec<usize>> = Vec::new();
             for ((w, h), v) in by_size.iter() {
@@ -399,6 +402,14 @@ pub fn run() -> Result<()> {
                 let ret = Tensor::from_vec(ret, bs, &dev)?;
                 let (logits, value) = model.forward_pv(&xt)?;
                 let logp_all = candle_nn::ops::log_softmax(&(logits / temp)?, D::Minus1)?;
+                // KL(policy || teacher) per site, the teacher being the starting network at the same
+                // temperature: keeps the noisy policy gradient from walking away from it
+                let tkl = if teacher_kl > 0.0 {
+                    let tl = candle_nn::ops::log_softmax(&(opponents[0].model.forward(&xt)?.detach() / temp)?, D::Minus1)?;
+                    ((logp_all.exp()? * (&logp_all - &tl)?)?.sum(1)? * &sw)?.sum_all()?.affine(1.0 / bs as f64, 0.0)?
+                } else {
+                    Tensor::zeros((), DType::F32, &dev)?
+                };
                 let logp = logp_all.gather(&act.unsqueeze(1)?, 1)?.squeeze(1)?;
                 let ratio = (&logp - &old)?.exp()?;
                 let pg1 = (&ratio * &aw)?;
@@ -407,7 +418,7 @@ pub fn run() -> Result<()> {
                 let ent = ((logp_all.exp()? * &logp_all)?.sum(1)?.neg()? * &sw)?.sum_all()?.affine(1.0 / bs as f64, 0.0)?;
                 let vloss = (&value - &ret)?.sqr()?.mean_all()?;
                 let loss = if policy_on {
-                    ((&pg + (&vloss * vcoef)?)? - (&ent * ent_coef)?)?
+                    (((&pg + (&vloss * vcoef)?)? - (&ent * ent_coef)?)? + (&tkl * teacher_kl)?)?
                 } else {
                     (&vloss * vcoef)?
                 };
@@ -420,14 +431,15 @@ pub fn run() -> Result<()> {
                 stats[3] += kl.to_scalar::<f32>()? as f64;
                 stats[4] += clipped.to_scalar::<f32>()? as f64 / bs as f64;
                 stats[5] += 1.0;
+                stats[6] += tkl.to_scalar::<f32>()? as f64;
             }
         }
         let nb = stats[5].max(1.0);
         let upd_secs = t_upd.elapsed().as_secs_f64();
         say(format!(
-            "iter {:4}  win {:.3} vs frozen {:.3}  rank score {:.3} vs {:.3}  ({} mixed games)  pg {:+.4}  value {:.4}  expl var {:.3}  entropy {:.4}  kl {:.4}  clip {:.3}  frames {}  turns {}  rollout {:.0}s ({} fwd)  update {:.0}s  total {:.0}s{}",
+            "iter {:4}  win {:.3} vs frozen {:.3}  rank score {:.3} vs {:.3}  ({} mixed games)  pg {:+.4}  value {:.4}  expl var {:.3}  entropy {:.4}  kl {:.4}  clip {:.3}  teacher kl {:.4}  frames {}  turns {}  rollout {:.0}s ({} fwd)  update {:.0}s  total {:.0}s{}",
             it + 1, rate(side[0], 1), rate(side[1], 1), rate(side[0], 2), rate(side[1], 2), vs_games,
-            stats[0] / nb, stats[1] / nb, expl_var, stats[2] / nb, stats[3] / nb, stats[4] / nb,
+            stats[0] / nb, stats[1] / nb, expl_var, stats[2] / nb, stats[3] / nb, stats[4] / nb, stats[6] / nb,
             kept.len(), turns, roll_secs, fwd_calls, upd_secs, t_iter.elapsed().as_secs_f64(),
             if policy_on { "" } else { "  (value warmup)" }
         ));

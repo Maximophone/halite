@@ -613,6 +613,30 @@ every knob documented at its top):
   per-site moves look random to a network that only sees turn / limit; capacity (106k params)
   shared between two distributions. Next to try if DAgger is resumed: weight 1, beta 0.5
   (expert plays half the turns, so states stay near its own), or only the turns before contact.
+
+### Capacity, features and ErdmanBot as teacher (2026-10-18)
+
+- Capacity: from scratch on the 3,200 DexBot games, same seed, validation loss at steps 1k / 2k /
+  3k: 32 channels x 10 blocks (106k params) 0.368 / 0.332 / 0.303, 64 x 12 (about 490k params)
+  0.344 / 0.296 / 0.279. The big net imitates better at every step (small net's 10k: 0.241). The
+  64-channel kernels (`*_sg64`, MAXC 64) are correct but less efficient: 112 steps/min against
+  860. nn.rs threads the convolutions for nets over 48 channels (`NEURO_THREADS`); the big net
+  takes about 7 ms per 30x30 turn on the CPU.
+- Feature set v2 (`--features 2`, 24 planes, see `features_v2` in nn.rs): DexBot's parity,
+  distances (enemy, depth in our land, distance to it), capture value, an ErdmanBot-style
+  potential field, my shares of production / sites / strength, per-enemy relative strength,
+  walls, own neighbours. About 0.1 ms per frame. Weights record their plane count (`arch[0]`)
+  and `Net` picks the feature set, so v1 weights (NeuroAlpha) still work. `halite-rl features`
+  prints the planes of a few frames.
+- ErdmanBot as teacher: `gen_data.py --teacher erdman_bot`, 4,000 games (`rl/data/erdman`, 9.6
+  GB) + 150 validation. Small net, 10k steps, v1 vs v2: validation loss 0.3803 vs 0.3800 (no
+  difference; DexBot cloning reaches 0.24 at the same point: Erdman breaks every tie with
+  `random.random()`, so many of its moves are unpredictable). In games (100 each, seed 23): vs
+  DexBot 1v1 4% / 5%, PredatorBot pool ffa4 21% / 29%, vs ErdmanBot 0% / 2%. The DexBot clone
+  at the same step count had 70% ffa4. Cloning the winner works far worse than cloning DexBot:
+  ErdmanBot's strength is precise coordination (red-green trees, which pieces wait), which an
+  approximate copy loses, while DexBot's rules degrade gracefully. v2 features: no imitation
+  gain, maybe a small one in play (+8 points ffa4, about 1.7 standard errors).
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

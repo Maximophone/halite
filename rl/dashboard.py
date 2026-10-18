@@ -78,6 +78,25 @@ def parse_run(path):
     return run
 
 
+def data_jobs(data_dir):
+    """Game generation logs (rl/data/*.log, written by gen_data.py / gen_dagger.py): progress of each."""
+    jobs = []
+    if not os.path.isdir(data_dir):
+        return jobs
+    for name in sorted(os.listdir(data_dir)):
+        if not name.endswith(".log"):
+            continue
+        path = os.path.join(data_dir, name)
+        done = total = None
+        for line in open(path, errors="replace"):
+            m = re.match(r"(\d+)/(\d+) games", line)
+            if m:
+                done, total = int(m[1]), int(m[2])
+        if total:
+            jobs.append({"name": name[:-4], "done": done, "total": total, "updated": os.path.getmtime(path)})
+    return jobs
+
+
 class Handler(SimpleHTTPRequestHandler):
     runs_dir = "rl/runs"
 
@@ -95,7 +114,7 @@ class Handler(SimpleHTTPRequestHandler):
                     p = os.path.join(self.runs_dir, name, "log.txt")
                     if os.path.isfile(p):
                         runs[name] = parse_run(p)
-            body = json.dumps({"now": time.time(), "runs": runs}).encode()
+            body = json.dumps({"now": time.time(), "runs": runs, "jobs": data_jobs(os.path.join(HERE, "data"))}).encode()
             return self.reply(body, "application/json")
         self.send_error(404)
 

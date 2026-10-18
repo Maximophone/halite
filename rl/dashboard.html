@@ -38,6 +38,11 @@
   .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
   .dot.live { background: var(--good); }
   .meta { color: var(--muted); font-size: 12px; margin-left: auto; }
+  .jobs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+  .job { background: var(--surface); border: 1px solid var(--ring); border-radius: 10px; padding: 8px 12px; min-width: 220px; flex: 1 1 220px; }
+  .job .k { color: var(--ink2); font-size: 12px; }
+  .job .v { font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .job .s { color: var(--muted); font-size: 12px; }
   .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-bottom: 12px; }
   .tile, .card { background: var(--surface); border: 1px solid var(--ring); border-radius: 12px; }
   .tile { padding: 12px 14px; }
@@ -80,6 +85,7 @@
     <div class="status"><div class="dot" id="dot"></div><span id="statustext">loading</span></div>
     <div class="meta" id="meta"></div>
   </header>
+  <div class="jobs" id="jobs"></div>
   <div id="content">
     <div class="tiles" id="tiles"></div>
     <div class="grid" id="rlgrid" hidden>
@@ -234,8 +240,23 @@ function dur(sec) {
   return h ? `${h} h ${m} min` : `${m} min`;
 }
 
+// game generation in progress (rl/data/*.log): shown only while it is running
+function renderJobs() {
+  const box = $("jobs"); box.textContent = "";
+  const live = (data.jobs || []).filter(j => j.done < j.total && data.now - j.updated < 600);
+  for (const j of live) {
+    const d = document.createElement("div"); d.className = "job";
+    const k = document.createElement("div"); k.className = "k"; k.textContent = "Generating games: " + j.name;
+    const v = document.createElement("div"); v.className = "v"; v.textContent = `${j.done.toLocaleString()} / ${j.total.toLocaleString()} games`;
+    const s = document.createElement("div"); s.className = "s"; s.textContent = "last progress " + Math.round(data.now - j.updated) + " s ago";
+    const bar = document.createElement("div"); bar.className = "bar"; const f = document.createElement("div"); f.style.width = (100 * j.done / j.total).toFixed(1) + "%"; bar.appendChild(f);
+    d.append(k, v, s, bar); box.appendChild(d);
+  }
+}
+
 function render() {
   if (!data) return;
+  renderJobs();
   const names = Object.keys(data.runs);
   const sel = $("run");
   if (!names.length) { $("content").innerHTML = '<div class="empty">No runs yet in rl/runs/</div>'; return; }

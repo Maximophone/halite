@@ -93,7 +93,7 @@ fn main() {
         let (owners, strengths) = parse_map(&line, n);
         // the expert answers this frame while we compute ours
         let expert_alive = send(&mut ein, &line);
-        let logits = net.forward(w, h, &nn::features(w, h, &owners, &strengths, &prod, tag, turn));
+        let logits = net.forward(w, h, &net.features(w, h, &owners, &strengths, &prod, tag, turn));
         let mut expert_dirs = vec![0u8; n];
         if expert_alive {
             if let Some(reply) = read_line(&mut eout) {

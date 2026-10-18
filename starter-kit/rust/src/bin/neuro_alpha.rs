@@ -6,7 +6,7 @@
 //! frozen version. NEURO_WEIGHTS=path loads other weights instead, NEURO_TEMP=t > 0 samples
 //! moves from softmax(logits / t) instead of taking the most likely one.
 
-use hlt::nn::{features, Net, NUM_MOVES};
+use hlt::nn::{Net, NUM_MOVES};
 use hlt::*;
 
 const WEIGHTS: &[u8] = include_bytes!("../../weights/neuro_alpha.hnn");
@@ -36,7 +36,7 @@ fn main() {
                 strengths[y * w + x] = s.strength;
             }
         }
-        let logits = net.forward(w, h, &features(w, h, &owners, &strengths, &productions, me, turn));
+        let logits = net.forward(w, h, &net.features(w, h, &owners, &strengths, &productions, me, turn));
         let mut moves = Vec::new();
         for i in 0..w * h {
             if owners[i] != me {

@@ -14,8 +14,150 @@
 //! Tensors are channel-last ([y][x][c]); a 3x3 kernel is (9 * Cin, Cout) with tap
 //! k = 3 * (dy + 1) + (dx + 1) reading the input at (y + dy * d, x + dx * d).
 
+/// Planes of feature set v1 (NeuroAlpha's) and v2. A weights file records its plane count
+/// (`arch[0]`), which selects the feature set: old weights keep working unchanged.
 pub const NUM_FEATURES: usize = 11;
+pub const NUM_FEATURES_V2: usize = 24;
 pub const NUM_MOVES: usize = 5;
+
+/// Features for a network that takes `planes` input planes (11: v1, 24: v2).
+#[allow(clippy::too_many_arguments)]
+pub fn features_for(planes: usize, w: usize, h: usize, owners: &[u8], strengths: &[u8], productions: &[u8], me: u8, turn: usize) -> Vec<f32> {
+    if planes == NUM_FEATURES_V2 {
+        features_v2(w, h, owners, strengths, productions, me, turn)
+    } else {
+        features(w, h, owners, strengths, productions, me, turn)
+    }
+}
+
+/// Multi-source breadth-first distance on the wrap-around grid (4 neighbours), capped at `cap`.
+fn bfs(w: usize, h: usize, source: impl Fn(usize) -> bool, cap: u16) -> Vec<u16> {
+    let n = w * h;
+    let mut d = vec![cap; n];
+    let mut q = std::collections::VecDeque::new();
+    for i in 0..n {
+        if source(i) {
+            d[i] = 0;
+            q.push_back(i);
+        }
+    }
+    while let Some(i) = q.pop_front() {
+        if d[i] + 1 >= cap {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        for j in [((y + h - 1) % h) * w + x, ((y + 1) % h) * w + x, y * w + (x + 1) % w, y * w + (x + w - 1) % w] {
+            if d[j] > d[i] + 1 {
+                d[j] = d[i] + 1;
+                q.push_back(j);
+            }
+        }
+    }
+    d
+}
+
+/// A potential field in the spirit of ErdmanBot's (his v26): every site we do not own starts at
+/// strength / production (the turns a capture takes to pay back); stepping onto another unowned
+/// site gives 0.9 x the neighbour's potential + 0.1 x its own (tunnelling past an expensive site
+/// to a cheap one behind it), stepping into our land adds 0.2 x depth^2. Dijkstra order (the
+/// updates never decrease a popped value). Low = attractive.
+fn potential(w: usize, h: usize, owners: &[u8], strengths: &[u8], productions: &[u8], me: u8) -> Vec<f32> {
+    use std::cmp::Reverse;
+    use std::collections::BinaryHeap;
+    let n = w * h;
+    let seed: Vec<f32> = (0..n).map(|i| strengths[i] as f32 / (productions[i] as f32).max(0.5)).collect();
+    let mut pot = vec![f32::INFINITY; n];
+    let mut depth = vec![0u16; n];
+    let mut heap = BinaryHeap::new();
+    for i in 0..n {
+        if owners[i] != me {
+            pot[i] = seed[i];
+            heap.push(Reverse((seed[i].to_bits(), i))); // non-negative floats order like their bits
+        }
+    }
+    while let Some(Reverse((bits, i))) = heap.pop() {
+        if f32::from_bits(bits) > pot[i] {
+            continue;
+        }
+        let (x, y) = (i % w, i / w);
+        for j in [((y + h - 1) % h) * w + x, ((y + 1) % h) * w + x, y * w + (x + 1) % w, y * w + (x + w - 1) % w] {
+            let (cand, dj) = if owners[j] == me {
+                let d = depth[i] + 1;
+                (pot[i] + 0.2 * (d as f32) * (d as f32), d)
+            } else {
+                (0.9 * pot[i] + 0.1 * seed[j], 0)
+            };
+            if cand < pot[j] {
+                pot[j] = cand;
+                depth[j] = dj;
+                heap.push(Reverse((cand.to_bits(), j)));
+            }
+        }
+    }
+    pot
+}
+
+/// Feature set v2: the 11 planes of v1, then
+///   11 (x + y + turn) mod 2 (DexBot's chessboard)
+///   12 distance to the nearest enemy site / 30 (1 when none)
+///   13 our sites: depth inside our territory (distance to a site we do not own) / 30
+///   14 other sites: distance to our territory / 30
+///   15 neutral sites: production / max(strength, 5), capped at 1 (capture value)
+///   16 potential field (see `potential`) as 1 / (1 + p / 5): high = attractive
+///   17-19 my share of player-owned production, of the map's sites, of player-owned strength
+///   20 enemy sites: their owner's total strength / (mine + theirs)
+///   21 walls: neutral sites touching both us and an enemy
+///   22 strongest enemy's total strength / (mine + theirs)
+///   23 our own neighbours / 4
+/// 24 planes, a multiple of 8, so the stem keeps the fast kernels.
+#[allow(clippy::too_many_arguments)]
+pub fn features_v2(w: usize, h: usize, owners: &[u8], strengths: &[u8], productions: &[u8], me: u8, turn: usize) -> Vec<f32> {
+    let n = w * h;
+    let v1 = features(w, h, owners, strengths, productions, me, turn);
+    let nf = NUM_FEATURES_V2;
+    let mut out = vec![0f32; n * nf];
+    let (mut terr, mut strn, mut prod) = ([0f64; 256], [0f64; 256], [0f64; 256]);
+    for i in 0..n {
+        let o = owners[i] as usize;
+        terr[o] += 1.0;
+        strn[o] += strengths[i] as f64;
+        prod[o] += productions[i] as f64;
+    }
+    let me_u = me as usize;
+    let players_prod: f64 = prod[1..].iter().sum();
+    let players_strn: f64 = strn[1..].iter().sum();
+    let my_prod_share = (prod[me_u] / players_prod.max(1.0)) as f32;
+    let my_terr_share = (terr[me_u] / n as f64) as f32;
+    let my_strn_share = (strn[me_u] / players_strn.max(1.0)) as f32;
+    let rel = |p: usize| (strn[p] / (strn[me_u] + strn[p]).max(1.0)) as f32;
+    let strongest = (1..256).filter(|&p| p != me_u && terr[p] > 0.0).map(rel).fold(0f32, f32::max);
+    let d_enemy = bfs(w, h, |i| owners[i] != 0 && owners[i] != me, 30);
+    let d_out = bfs(w, h, |i| owners[i] != me, 30);
+    let d_in = bfs(w, h, |i| owners[i] == me, 30);
+    let pot = potential(w, h, owners, strengths, productions, me);
+    for i in 0..n {
+        let (x, y) = (i % w, i / w);
+        let nb = [((y + h - 1) % h) * w + x, ((y + 1) % h) * w + x, y * w + (x + 1) % w, y * w + (x + w - 1) % w];
+        let o = owners[i];
+        let mine = o == me;
+        let f = &mut out[i * nf..(i + 1) * nf];
+        f[..NUM_FEATURES].copy_from_slice(&v1[i * NUM_FEATURES..(i + 1) * NUM_FEATURES]);
+        f[11] = ((x + y + turn) % 2) as f32;
+        f[12] = d_enemy[i] as f32 / 30.0;
+        f[13] = if mine { d_out[i] as f32 / 30.0 } else { 0.0 };
+        f[14] = if mine { 0.0 } else { d_in[i] as f32 / 30.0 };
+        f[15] = if o == 0 { (productions[i] as f32 / (strengths[i] as f32).max(5.0)).min(1.0) } else { 0.0 };
+        f[16] = 1.0 / (1.0 + pot[i] / 5.0);
+        f[17] = my_prod_share;
+        f[18] = my_terr_share;
+        f[19] = my_strn_share;
+        f[20] = if o != 0 && !mine { rel(o as usize) } else { 0.0 };
+        f[21] = (o == 0 && nb.iter().any(|&j| owners[j] == me) && nb.iter().any(|&j| owners[j] != 0 && owners[j] != me)) as u8 as f32;
+        f[22] = strongest;
+        f[23] = nb.iter().filter(|&&j| owners[j] == me).count() as f32 / 4.0;
+    }
+    out
+}
 
 /// Turn limit of a W x H game (engine rule).
 pub fn turn_limit(w: usize, h: usize) -> usize {
@@ -65,6 +207,8 @@ struct Block {
 
 pub struct Net {
     pub channels: usize,
+    /// input planes: NUM_FEATURES (v1) or NUM_FEATURES_V2
+    pub num_features: usize,
     stem_w: Vec<f32>,
     stem_b: Vec<f32>,
     blocks: Vec<Block>,
@@ -130,9 +274,10 @@ impl Net {
         };
         // arch = [features, channels, dilation of each block..]
         let arch = get("arch")?;
-        if arch.len() < 2 || arch[0] as usize != NUM_FEATURES {
-            return Err("weights were trained with different features".into());
+        if arch.len() < 2 || ![NUM_FEATURES, NUM_FEATURES_V2].contains(&(arch[0] as usize)) {
+            return Err("weights were trained with an unknown feature set".into());
         }
+        let num_features = arch[0] as usize;
         let channels = arch[1] as usize;
         let mut blocks = Vec::new();
         for (k, &d) in arch[2..].iter().enumerate() {
@@ -145,6 +290,7 @@ impl Net {
         }
         Ok(Net {
             channels,
+            num_features,
             stem_w: get("stem.w")?,
             stem_b: get("stem.b")?,
             blocks,
@@ -153,12 +299,18 @@ impl Net {
         })
     }
 
+    /// The input planes this network was trained with, for player `me` at `turn`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn features(&self, w: usize, h: usize, owners: &[u8], strengths: &[u8], productions: &[u8], me: u8, turn: usize) -> Vec<f32> {
+        features_for(self.num_features, w, h, owners, strengths, productions, me, turn)
+    }
+
     /// Move logits for every site, [y][x][5].
     pub fn forward(&self, w: usize, h: usize, x: &[f32]) -> Vec<f32> {
         let c = self.channels;
         let n = w * h;
         let mut cur = vec![0f32; n * c];
-        conv3x3(x, NUM_FEATURES, w, h, 1, &self.stem_w, &self.stem_b, c, &mut cur);
+        conv3x3(x, self.num_features, w, h, 1, &self.stem_w, &self.stem_b, c, &mut cur);
         relu(&mut cur);
         let mut next = vec![0f32; n * c];
         for blk in &self.blocks {

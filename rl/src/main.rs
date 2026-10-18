@@ -16,6 +16,7 @@ mod game;
 #[allow(dead_code)]
 #[path = "../../engine/src/pyrandom.rs"]
 mod pyrandom;
+#[allow(dead_code)]
 #[path = "../../starter-kit/rust/src/nn.rs"]
 mod nn;
 
@@ -188,7 +189,7 @@ fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
     let (w0, h0) = (g0.w, g0.h);
     let (w, h) = sym_dims(w0, h0, sym);
     let n = w * h;
-    let nf = nn::NUM_FEATURES;
+    let nf = nf();
     let mut x = vec![0f32; samples.len() * n * nf];
     let mut tgt = vec![0u32; samples.len() * n];
     let mut mask = vec![0f32; samples.len() * n];
@@ -198,7 +199,7 @@ fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
         let own = &g.owners[f * n..(f + 1) * n];
         let st = &g.strengths[f * n..(f + 1) * n];
         let mv = &g.moves[f * n..(f + 1) * n];
-        let feat = nn::features(w0, h0, own, st, &g.prod, s.player, f);
+        let feat = feats(w0, h0, own, st, &g.prod, s.player, f);
         // every frame weighs the same in the loss, however many sites the player owns: otherwise
         // the opening (one site) is drowned by mid-game frames with hundreds of sites
         let weight = 1.0 / own.iter().filter(|&&o| o == s.player).count() as f32;
@@ -223,6 +224,8 @@ fn make_batch(games: &[Game], samples: &[Sample], sym: usize) -> Batch {
 
 struct Model {
     channels: usize,
+    /// input planes (feature set) this model was built for
+    nf: usize,
     dil: Vec<usize>,
     stem_w: Tensor,
     stem_b: Tensor,
@@ -257,6 +260,23 @@ fn load_partial(varmap: &VarMap, path: &Path, dev: &Device) -> Result<Vec<String
     }
     missing.sort();
     Ok(missing)
+}
+
+/// Input planes of the feature set in use (`--features 1|2`, see nn.rs; v1 by default).
+static PLANES: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(nn::NUM_FEATURES);
+
+fn set_features(version: usize) {
+    PLANES.store(if version == 2 { nn::NUM_FEATURES_V2 } else { nn::NUM_FEATURES }, std::sync::atomic::Ordering::Relaxed);
+}
+
+fn nf() -> usize {
+    PLANES.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// The input planes of the current feature set.
+#[allow(clippy::too_many_arguments)]
+fn feats(w: usize, h: usize, owners: &[u8], strengths: &[u8], productions: &[u8], me: u8, turn: usize) -> Vec<f32> {
+    nn::features_for(nf(), w, h, owners, strengths, productions, me, turn)
 }
 
 /// Use the hand-written Metal conv (metal_conv.rs) instead of gather + matmul (`--conv gather`).
@@ -310,7 +330,7 @@ fn conv(x: &Tensor, w: &Tensor, b: &Tensor, d: usize) -> Result<Tensor> {
 impl Model {
     fn new(vb: &VarBuilder, channels: usize, dil: &[usize]) -> Result<Model> {
         let c = channels;
-        let nf = nn::NUM_FEATURES;
+        let nf = nf();
         let he = |fan: usize, scale: f64| Init::Randn { mean: 0.0, stdev: scale * (2.0 / fan as f64).sqrt() };
         let zero = Init::Const(0.0);
         let mut blocks = Vec::new();
@@ -323,6 +343,7 @@ impl Model {
         }
         Ok(Model {
             channels,
+            nf,
             dil: dil.to_vec(),
             stem_w: vb.get_with_hints((9 * nf, c), "stem.w", he(9 * nf, 1.0))?,
             stem_b: vb.get_with_hints(c, "stem.b", zero)?,
@@ -359,7 +380,7 @@ impl Model {
         let hid = self.trunk(x)?.reshape((bs, h * w, c))?;
         let logits = hid.reshape((bs * h * w, c))?.matmul(&self.head_w)?.broadcast_add(&self.head_b)?;
         let hd = hid.detach();
-        let xf = x.reshape((bs, h * w, nn::NUM_FEATURES))?;
+        let xf = x.reshape((bs, h * w, self.nf))?;
         let mine = xf.narrow(2, 0, 1)?;
         let count = (metal_conv::pixel_mean(&mine)? * (h * w) as f64)?.clamp(1.0, f64::MAX)?;
         let mean_mine = (metal_conv::pixel_mean(&hd.broadcast_mul(&mine)?)? * (h * w) as f64)?.broadcast_div(&count)?;
@@ -368,7 +389,7 @@ impl Model {
         let enemy_prod = (xf.narrow(2, 1, 1)? * &prod)?;
         // one pass over the pixels for all the map means the value head reads
         let means = metal_conv::pixel_mean(&Tensor::cat(&[&hd, &xf, &my_prod, &enemy_prod], 2)?)?;
-        let feats = Tensor::cat(&[means.narrow(1, 0, c)?, mean_mine, means.narrow(1, c, nn::NUM_FEATURES + 2)?], 1)?;
+        let feats = Tensor::cat(&[means.narrow(1, 0, c)?, mean_mine, means.narrow(1, c, self.nf + 2)?], 1)?;
         let hv = feats.matmul(&self.value_w1)?.broadcast_add(&self.value_b1)?.relu()?;
         let value = hv.matmul(&self.value_w2)?.broadcast_add(&self.value_b2)?.tanh()?.squeeze(1)?;
         let vm = if vmap {
@@ -407,7 +428,7 @@ impl Model {
 
     fn export(&self) -> Result<Vec<u8>> {
         let mut ts: Vec<(String, Vec<usize>, Vec<f32>)> = Vec::new();
-        let mut arch = vec![nn::NUM_FEATURES as f32, self.channels as f32];
+        let mut arch = vec![self.nf as f32, self.channels as f32];
         arch.extend(self.dil.iter().map(|&d| d as f32));
         ts.push(("arch".into(), vec![arch.len()], arch));
         let mut put = |name: String, t: &Tensor| -> Result<()> {
@@ -429,7 +450,7 @@ impl Model {
 
 /// (weighted NLL sum, [sum of weights (= frames), sites, correct, teacher moves that are not STILL, of those correct])
 fn batch_stats(model: &Model, batch: &Batch, dev: &Device) -> Result<(Tensor, [f64; 5])> {
-    let x = Tensor::from_slice(&batch.x, (batch.b, batch.h, batch.w, nn::NUM_FEATURES), dev)?;
+    let x = Tensor::from_slice(&batch.x, (batch.b, batch.h, batch.w, nf()), dev)?;
     let tgt = Tensor::from_slice(&batch.tgt, batch.tgt.len(), dev)?;
     let mask = Tensor::from_slice(&batch.mask, batch.mask.len(), dev)?;
     let logits = model.forward(&x)?;
@@ -515,6 +536,7 @@ fn train() -> Result<()> {
     let eval_every: usize = get("eval-every", "1000").parse().unwrap();
     let max_games: usize = get("max-games", "1000000").parse().unwrap();
     let seed: u64 = get("seed", "1").parse().unwrap();
+    set_features(get("features", "1").parse().unwrap());
     let conv_impl = get("conv", "fused");
     USE_KERNEL.store(conv_impl != "gather", std::sync::atomic::Ordering::Relaxed);
     FUSED.store(conv_impl == "fused", std::sync::atomic::Ordering::Relaxed);
@@ -552,10 +574,12 @@ fn train() -> Result<()> {
     let val = val_batches(&val_games, pixels, 3000);
     say(format!("{} games, {} samples, {} sizes, {} val batches, loaded in {:.1?}", games.len(), nsamples, keys.len(), val.len(), t0.elapsed()));
 
-    // batches are built on two CPU threads while the GPU trains
+    // batches are built on CPU threads while the GPU trains (v2 features run three BFS and a
+    // Dijkstra per frame, so they get more threads)
     let (tx, rx) = mpsc::sync_channel::<Batch>(8);
     let buckets = std::sync::Arc::new(buckets);
-    for t in 0..2u64 {
+    let producers = if nf() == nn::NUM_FEATURES { 2 } else { 6 };
+    for t in 0..producers {
         let (tx, games, buckets, keys, weights) = (tx.clone(), games.clone(), buckets.clone(), keys.clone(), weights.clone());
         std::thread::spawn(move || {
             let mut rng = Rng(seed * 1000 + t);
@@ -646,6 +670,7 @@ fn parity() -> Result<()> {
     let net = nn::Net::load(&std::fs::read(run.join("model.hnn")).unwrap()).unwrap();
     let tensors = nn::read_tensors(&std::fs::read(run.join("model.hnn")).unwrap()).unwrap();
     let arch = &tensors.iter().find(|t| t.0 == "arch").unwrap().2;
+    PLANES.store(arch[0] as usize, std::sync::atomic::Ordering::Relaxed);
     let dil: Vec<usize> = arch[2..].iter().map(|&d| d as usize).collect();
     let dev = Device::new_metal(0)?;
     let varmap = VarMap::new();
@@ -659,7 +684,7 @@ fn parity() -> Result<()> {
         let f = g.frames / 2;
         let s = Sample { game: gi as u32, frame: f as u16, player: g.teachers[0] };
         let b = make_batch(&games, &[s], 0);
-        let x = Tensor::from_slice(&b.x, (1, b.h, b.w, nn::NUM_FEATURES), &dev)?;
+        let x = Tensor::from_slice(&b.x, (1, b.h, b.w, nf()), &dev)?;
         let gpu: Vec<f32> = model.forward(&x)?.flatten_all()?.to_vec1()?;
         let t = Instant::now();
         let cpu = net.forward(b.w, b.h, &b.x);
@@ -742,7 +767,7 @@ fn bench() -> Result<()> {
         let dil = [1, 2, 4, 8];
         let varmap = VarMap::new();
         let model = Model::new(&VarBuilder::from_varmap(&varmap, DType::F32, &dev), channels, &dil)?;
-        let x = Tensor::rand(0f32, 1., (3, 13, 11, nn::NUM_FEATURES), &dev)?;
+        let x = Tensor::rand(0f32, 1., (3, 13, 11, nf()), &dev)?;
         let probe = Tensor::randn(0f32, 1., (3 * 13 * 11, nn::NUM_MOVES), &dev)?;
         let mut runs = Vec::new();
         for (kernel, fused, sg) in [(false, false, false), (true, true, false), (true, true, true)] {
@@ -793,7 +818,7 @@ fn bench() -> Result<()> {
     let varmap = VarMap::new();
     let model = Model::new(&VarBuilder::from_varmap(&varmap, DType::F32, &dev), 32, &dil)?;
     let mut opt = AdamW::new(varmap.all_vars(), ParamsAdamW::default())?;
-    let x = Tensor::randn(0f32, 1., (26, 50, 50, nn::NUM_FEATURES), &dev)?;
+    let x = Tensor::randn(0f32, 1., (26, 50, 50, nf()), &dev)?;
     for (name, fused, sg) in [("Metal conv, unfused, scalar", false, false), ("fused, scalar kernels", true, false), ("fused, matrix units", true, true)] {
         FUSED.store(fused, Relaxed);
         metal_conv::MATRIX_UNITS.store(sg, Relaxed);
@@ -864,6 +889,31 @@ fn bench() -> Result<()> {
     Ok(())
 }
 
+/// `halite-rl features --val DIR`: per-plane min / mean / max of feature set v2 on a mid-game
+/// frame of a few games, and the time it takes per frame (a sanity check of the planes).
+fn features_report() -> Result<()> {
+    let a = args();
+    let games = load_dir(a.get("val").map(|s| s.as_str()).unwrap_or("rl/data/val"), a.get("teacher").map(|s| s.as_str()).unwrap_or("DexBot"), 4);
+    let names = ["mine", "enemy", "neutral", "strength", "production", "mine x str", "enemy x str", "neutral x str", "free",
+        "turn", "enemies", "parity", "dist enemy", "depth in ours", "dist to ours", "capture value", "potential",
+        "my prod share", "my site share", "my str share", "enemy rel str", "wall", "strongest enemy", "own neighbours"];
+    for g in &games {
+        let f = g.frames / 2;
+        let n = g.w * g.h;
+        let p = g.teachers[0];
+        let t = Instant::now();
+        let x = nn::features_v2(g.w, g.h, &g.owners[f * n..(f + 1) * n], &g.strengths[f * n..(f + 1) * n], &g.prod, p, f);
+        let el = t.elapsed();
+        println!("{}x{} frame {f}, player {p}: {:.2?} for the planes", g.w, g.h, el);
+        for (k, name) in names.iter().enumerate() {
+            let v: Vec<f32> = (0..n).map(|i| x[i * nn::NUM_FEATURES_V2 + k]).collect();
+            let (lo, hi) = v.iter().fold((f32::MAX, f32::MIN), |(a, b), &c| (a.min(c), b.max(c)));
+            println!("  {k:2} {name:16} min {lo:7.3}  mean {:7.3}  max {hi:7.3}", v.iter().sum::<f32>() / n as f32);
+        }
+    }
+    Ok(())
+}
+
 fn main() -> Result<()> {
     match std::env::args().nth(1).as_deref() {
         Some("train") => train(),
@@ -871,6 +921,7 @@ fn main() -> Result<()> {
         Some("bench") => bench(),
         Some("rl") => ppo::run(),
         Some("simtest") => sim::check_replays(),
+        Some("features") => features_report(),
         _ => {
             eprintln!("usage: halite-rl train|parity|bench|rl [--key value ...] (see the top of src/main.rs and src/ppo.rs)");
             std::process::exit(2);

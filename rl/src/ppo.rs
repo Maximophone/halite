@@ -29,7 +29,7 @@
 //! Writes log.txt ("iter ..." lines), model.safetensors and model.hnn (the bot's format) to --run.
 
 use crate::sim::Env;
-use crate::{load_partial, nn, Model, Rng};
+use crate::{load_partial, Model, Rng};
 use candle_core::{DType, Device, Result, Tensor, D};
 use candle_nn::{AdamW, Optimizer, ParamsAdamW, VarBuilder, VarMap};
 use std::collections::HashMap;
@@ -198,14 +198,14 @@ fn build_batch(c: &Ctx, b: &[usize], dev: &Device) -> Result<Batch> {
     let (w, h) = (e0.width(), e0.height());
     let n = w * h;
     let bs = b.len();
-    let mut x = Vec::with_capacity(bs * n * nn::NUM_FEATURES);
+    let mut x = Vec::with_capacity(bs * n * crate::nf());
     let (mut act, mut old, mut sw, mut gadv, mut lret) =
         (Vec::with_capacity(bs * n), Vec::with_capacity(bs * n), Vec::with_capacity(bs * n), Vec::with_capacity(bs * n), Vec::with_capacity(bs * n));
     let mut ret = Vec::with_capacity(bs);
     for &ki in b {
         let k = &c.kept[ki];
         let (own, st) = &c.frames[&(k.env, k.turn)];
-        x.extend(nn::features(w, h, own, st, &c.games[k.env].prod, k.player, k.turn));
+        x.extend(crate::feats(w, h, own, st, &c.games[k.env].prod, k.player, k.turn));
         let owned = own.iter().filter(|&&o| o == k.player).count().max(1) as f32;
         let adv = (c.trajs[k.traj].adv[k.step] - c.mean) / c.std;
         let lr = c.local.get(&(k.env, k.turn, k.player));
@@ -224,7 +224,7 @@ fn build_batch(c: &Ctx, b: &[usize], dev: &Device) -> Result<Batch> {
     }
     Ok(Batch {
         bs,
-        xt: Tensor::from_vec(x, (bs, h, w, nn::NUM_FEATURES), dev)?,
+        xt: Tensor::from_vec(x, (bs, h, w, crate::nf()), dev)?,
         act: Tensor::from_vec(act, bs * n, dev)?,
         old: Tensor::from_vec(old, bs * n, dev)?,
         sw: Tensor::from_vec(sw, bs * n, dev)?,
@@ -305,6 +305,7 @@ pub fn run() -> Result<()> {
     let save_every = num("save-every", "5") as usize;
     let seed = num("seed", "1") as u64;
     let temp = num("temp", "0.5");
+    crate::set_features(get("features", "1").parse().unwrap());
     let teacher_kl = num("teacher-kl", "0.1");
     let solo = num("solo", "0.0");
     let solo_turns = num("solo-turns", "150") as usize;
@@ -413,13 +414,13 @@ pub fn run() -> Result<()> {
             let mut outputs = Vec::with_capacity(keys.len());
             for &(pol, w, h) in &keys {
                 let obs = &groups[&(pol, w, h)];
-                let mut x = Vec::with_capacity(obs.len() * w * h * nn::NUM_FEATURES);
+                let mut x = Vec::with_capacity(obs.len() * w * h * crate::nf());
                 for &(gi, p) in obs {
                     let g = &games[gi];
                     let (own, st) = g.hist.last().unwrap();
-                    x.extend(nn::features(w, h, own, st, &g.prod, p, g.env.turn));
+                    x.extend(crate::feats(w, h, own, st, &g.prod, p, g.env.turn));
                 }
-                let xt = Tensor::from_vec(x, (obs.len(), h, w, nn::NUM_FEATURES), &dev)?;
+                let xt = Tensor::from_vec(x, (obs.len(), h, w, crate::nf()), &dev)?;
                 fwd_calls += 1;
                 outputs.push(if pol == 0 {
                     let (l, v) = model.forward_pv(&xt)?;

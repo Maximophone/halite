@@ -696,6 +696,13 @@ Suite (seed 23), NeuroGamma vs NeuroBeta: pool 1v1 96 (95), ffa4 80 (78), ffa6 8
 62 (53), ApexGamma 56 (56), ErdmanBot 9 (10).
 NeuroBeta with the bc4 network instead of bc3: 96 / 76 / 79 / 51 / 44 / 7, no better (worse vs
 ApexGamma): better imitation again did not turn into wins.
+
+Big net (64 channels x 12 blocks, about 510k parameters, `rl/runs/cap-big`, from scratch on the
+3,200 DexBot games, 10k steps; validation loss 0.213, the released 32-channel net 0.217 after 20k
+steps): alone, 1v1 vs DexBot 36% (released net 24%, bc4 26%), the first imitation gain that shows
+up in play; as NeuroGamma's network 67% (62%, within noise). Run `rl/runs/big64` continues it for
+20k more steps (lr 5e-4, about 3 hours at 115 steps/min). Use `NEURO_THREADS=1` when evaluating
+it with many games in parallel.
 - Monitoring: the dashboard shows RL runs (rank score and win rate per seat of learner vs frozen
   opponents, explained variance, entropy). `python3 rl/eval_checkpoints.py rl/runs/ppo1 --every 25`
   plays every 25th checkpoint (argmax, i.e. the real bot) against the PredatorBot pool and DexBot,

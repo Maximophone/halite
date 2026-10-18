@@ -1,0 +1,46 @@
+{
+  "breach1": {
+    "BREACH": 1,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "breach12": {
+    "BREACH": 1.2,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "breach15": {
+    "BREACH": 1.5,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "breach2": {
+    "BREACH": 2,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "breach12_ns": {
+    "BREACH": 1.2,
+    "STRATEGIC": 0,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "breach15_ns": {
+    "BREACH": 1.5,
+    "STRATEGIC": 0,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

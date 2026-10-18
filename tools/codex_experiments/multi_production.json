@@ -1,0 +1,27 @@
+{
+  "prod12": {
+    "AUTO": 1,
+    "PROD_POWER": 1.2,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  },
+  "degrade4": {
+    "AUTO": 1,
+    "DEGRADE": 0.4,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7
+  },
+  "both": {
+    "AUTO": 1,
+    "PROD_POWER": 1.2,
+    "DEGRADE": 0.4,
+    "DUEL_HOLD": 7
+  },
+  "prod12_hold5": {
+    "AUTO": 1,
+    "PROD_POWER": 1.2,
+    "HOLD": 5,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

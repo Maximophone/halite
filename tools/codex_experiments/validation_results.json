@@ -1,0 +1,209 @@
+{
+  "seed": 1001,
+  "source_sha256": "4918b72a3aa4acb56d73860c9edece029a120a6a67646723cc8ce65966752ad1",
+  "binary_sha256": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+  "duels": {
+    "erdman_bot": {
+      "wins": 313,
+      "games": 400,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/erdman_bot": "8a7698be0424b27fa50dfdd42cddbc68462f165addbbbc703aca871cbd1406ce"
+      }
+    },
+    "apex_alpha": {
+      "wins": 97,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/apex_alpha": "66ff5a9cef0e383297b4abc619b746096281f0b0c9e9a583ba1977fc2003245c"
+      }
+    },
+    "apex_beta": {
+      "wins": 96,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/apex_beta": "380af30aea51881f70f58e53b753928e471b0e6d85d937dda7cbcf9d8ce37fc5"
+      }
+    },
+    "apex_delta": {
+      "wins": 89,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/apex_delta": "a0649e331e2eee476a4f069d9ddd77a44886cedb070b849dfed8cfc41e29d736"
+      }
+    },
+    "apex_gamma": {
+      "wins": 95,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/apex_gamma": "2c385d5efa846dea7a744d8f886cd6ff516e55f6369a2ac3ee8d8dcd75fc7138"
+      }
+    },
+    "dex_bot": {
+      "wins": 92,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/dex_bot": "87cf25af59ae629c7975ab256fd6d314810c631545fcf4a88766776b9712e409"
+      }
+    },
+    "hal_lite": {
+      "wins": 99,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/hal_lite": "06c3980ca0406540021f725aa885f1c69c6822d9af00578cd7a4762dcb945903"
+      }
+    },
+    "improved_bot": {
+      "wins": 98,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/improved_bot": "597ab93d2e25c236a545a40b2bb7e659629a1419cb3f8de6f5213f6cbd83647a"
+      }
+    },
+    "my_bot": {
+      "wins": 100,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/my_bot": "8c846c0a5ce5c5bce55d3d894daeb870826bf1b20e1689bcaa293b5ece8f25be"
+      }
+    },
+    "neuro_alpha": {
+      "wins": 96,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/neuro_alpha": "a930cec68d8e41dc3a224bc85e6013ac864393793adb3bfce07d9dde14bae616"
+      }
+    },
+    "neuro_beta": {
+      "wins": 89,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/neuro_beta": "82423871ee7edfa48ad8232ed0f8f6bcc9fe0ed303c90266763d33803885f79e"
+      }
+    },
+    "predator_bot": {
+      "wins": 98,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/predator_bot": "4dd5337c326c9655fb214c0f5c38bd750778cd578ad28f513648f1009392a7cc"
+      }
+    },
+    "random_bot": {
+      "wins": 100,
+      "games": 100,
+      "errors": 0,
+      "opponent_errors": 0,
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/random_bot": "094102574e475d89e1c259a7a4fb7fbbd2e8d869376691f44aed655b83a69d3d"
+      }
+    }
+  },
+  "multiplayer": {
+    "ffa4_erdman": {
+      "wins": 90,
+      "games": 200,
+      "average_rank": 2.155,
+      "errors": 0,
+      "opponent_errors": 0,
+      "arguments": {
+        "configs": "tools/codex_experiments/release.json",
+        "games": 200,
+        "seed": 1001,
+        "workers": 3,
+        "players": 4,
+        "opponents": "erdman_bot",
+        "candidate": "starter-kit/rust/target/codex-production/release/codex_bot",
+        "out": "starter-kit/rust/target/codex-results/validation/ffa4_erdman.json"
+      },
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/erdman_bot": "8a7698be0424b27fa50dfdd42cddbc68462f165addbbbc703aca871cbd1406ce"
+      }
+    },
+    "ffa6_mixed": {
+      "wins": 48,
+      "games": 120,
+      "average_rank": 2.466666666666667,
+      "errors": 0,
+      "opponent_errors": 9,
+      "clean_games": 111,
+      "clean_wins": 45,
+      "note": "Nine NeuroBeta timeouts; supplementary result excluded from headline performance claims.",
+      "arguments": {
+        "configs": "tools/codex_experiments/release.json",
+        "games": 120,
+        "seed": 1001,
+        "workers": 2,
+        "players": 6,
+        "opponents": "erdman_bot,dex_bot,apex_delta,hal_lite,neuro_beta",
+        "candidate": "starter-kit/rust/target/codex-production/release/codex_bot",
+        "out": "starter-kit/rust/target/codex-results/validation/ffa6_mixed.json"
+      },
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/erdman_bot": "8a7698be0424b27fa50dfdd42cddbc68462f165addbbbc703aca871cbd1406ce",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/dex_bot": "87cf25af59ae629c7975ab256fd6d314810c631545fcf4a88766776b9712e409",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/apex_delta": "a0649e331e2eee476a4f069d9ddd77a44886cedb070b849dfed8cfc41e29d736",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/hal_lite": "06c3980ca0406540021f725aa885f1c69c6822d9af00578cd7a4762dcb945903",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/neuro_beta": "82423871ee7edfa48ad8232ed0f8f6bcc9fe0ed303c90266763d33803885f79e"
+      }
+    },
+    "ffa6_erdman": {
+      "wins": 39,
+      "games": 180,
+      "average_rank": 3.216666666666667,
+      "errors": 0,
+      "opponent_errors": 0,
+      "arguments": {
+        "configs": "tools/codex_experiments/release.json",
+        "games": 180,
+        "seed": 1001,
+        "workers": 3,
+        "players": 6,
+        "opponents": "erdman_bot",
+        "candidate": "starter-kit/rust/target/codex-production/release/codex_bot",
+        "out": "starter-kit/rust/target/codex-results/validation/ffa6_erdman.json"
+      },
+      "sha256": {
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/codex-production/release/codex_bot": "ebdb46e6f24dc9cdf9497d2a8cd80a67958b7645263b95dbc86f8e96b5e38452",
+        "/Users/maximefournes/code/halite/starter-kit/rust/target/release/erdman_bot": "8a7698be0424b27fa50dfdd42cddbc68462f165addbbbc703aca871cbd1406ce"
+      }
+    }
+  }
+}

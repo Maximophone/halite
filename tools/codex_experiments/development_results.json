@@ -1,0 +1,956 @@
+{
+  "adaptive": {
+    "arguments": {
+      "configs": "tools/codex_experiments/adaptive.json",
+      "games": 64,
+      "seed": 303,
+      "workers": 3,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-adaptive/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/adaptive.json"
+    },
+    "experiments": {
+      "breach1": {
+        "settings": {
+          "BREACH": 1
+        },
+        "wins": 18,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.515625
+      },
+      "breach12": {
+        "settings": {
+          "BREACH": 1.2
+        },
+        "wins": 16,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.546875
+      },
+      "breach15": {
+        "settings": {
+          "BREACH": 1.5
+        },
+        "wins": 17,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.5
+      },
+      "breach2": {
+        "settings": {
+          "BREACH": 2
+        },
+        "wins": 15,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.546875
+      },
+      "breach12_ns": {
+        "settings": {
+          "BREACH": 1.2,
+          "STRATEGIC": 0
+        },
+        "wins": 17,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.53125
+      },
+      "breach15_ns": {
+        "settings": {
+          "BREACH": 1.5,
+          "STRATEGIC": 0
+        },
+        "wins": 17,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.484375
+      }
+    }
+  },
+  "multiplayer": {
+    "arguments": {
+      "configs": "tools/codex_experiments/multiplayer.json",
+      "games": 64,
+      "seed": 303,
+      "workers": 3,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/multiplayer.json"
+    },
+    "experiments": {
+      "baseline": {
+        "settings": {},
+        "wins": 16,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.5
+      },
+      "no_strategic": {
+        "settings": {
+          "STRATEGIC": 0
+        },
+        "wins": 17,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.46875
+      },
+      "no_walls": {
+        "settings": {
+          "WALLS": 0
+        },
+        "wins": 10,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 3.0625
+      },
+      "hold5": {
+        "settings": {
+          "HOLD": 5
+        },
+        "wins": 20,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.390625
+      },
+      "hold9": {
+        "settings": {
+          "HOLD": 9
+        },
+        "wins": 16,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.5625
+      },
+      "int75": {
+        "settings": {
+          "INT_MAX": 0.75
+        },
+        "wins": 17,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.5
+      },
+      "prod12": {
+        "settings": {
+          "PROD_POWER": 1.2
+        },
+        "wins": 23,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.078125
+      },
+      "degrade4": {
+        "settings": {
+          "DEGRADE": 0.4
+        },
+        "wins": 23,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 2.109375
+      }
+    }
+  },
+  "automatic": {
+    "arguments": {
+      "configs": "tools/codex_experiments/automatic.json",
+      "games": 80,
+      "seed": 505,
+      "workers": 3,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-auto/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/automatic.json"
+    },
+    "experiments": {
+      "auto": {
+        "settings": {
+          "AUTO": 1
+        },
+        "wins": 21,
+        "games": 80,
+        "errors": 0,
+        "average_rank": 2.4875
+      },
+      "auto_hold5": {
+        "settings": {
+          "AUTO": 1,
+          "HOLD": 5
+        },
+        "wins": 18,
+        "games": 80,
+        "errors": 0,
+        "average_rank": 2.575
+      },
+      "auto_no_strategic": {
+        "settings": {
+          "AUTO": 1,
+          "STRATEGIC": 0
+        },
+        "wins": 18,
+        "games": 80,
+        "errors": 0,
+        "average_rank": 2.6125
+      },
+      "auto_int75": {
+        "settings": {
+          "AUTO": 1,
+          "INT_MAX": 0.75
+        },
+        "wins": 28,
+        "games": 80,
+        "errors": 0,
+        "average_rank": 2.3625
+      }
+    }
+  },
+  "supply": {
+    "arguments": {
+      "configs": "tools/codex_experiments/supply.json",
+      "games": 100,
+      "seed": 404,
+      "workers": 2,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/supply.json"
+    },
+    "experiments": {
+      "int75": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.75
+        },
+        "wins": 73,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.27
+      },
+      "int95": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.95
+        },
+        "wins": 70,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.3
+      },
+      "int75_hold9": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.75,
+          "HOLD": 9
+        },
+        "wins": 73,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.27
+      },
+      "int75_d4": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.75,
+          "DEGRADE": 0.4
+        },
+        "wins": 46,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.54
+      }
+    }
+  },
+  "ffa_aggressive": {
+    "arguments": {
+      "configs": "tools/codex_experiments/aggressive.json",
+      "games": 80,
+      "seed": 202,
+      "workers": 2,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/ffa_aggressive.json"
+    },
+    "experiments": {
+      "both": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0
+        },
+        "wins": 18,
+        "games": 80,
+        "errors": 0,
+        "average_rank": 3.1125
+      }
+    }
+  },
+  "second": {
+    "arguments": {
+      "configs": "tools/codex_experiments/second.json",
+      "games": 100,
+      "seed": 101,
+      "workers": 4,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/second.json"
+    },
+    "experiments": {
+      "baseline": {
+        "settings": {},
+        "wins": 50,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.5
+      },
+      "no_walls": {
+        "settings": {
+          "WALLS": 0
+        },
+        "wins": 63,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.37
+      },
+      "no_strategic": {
+        "settings": {
+          "STRATEGIC": 0
+        },
+        "wins": 56,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.44
+      },
+      "both": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0
+        },
+        "wins": 70,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.3
+      },
+      "int75": {
+        "settings": {
+          "INT_MAX": 0.75
+        },
+        "wins": 49,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.51
+      },
+      "alpha06": {
+        "settings": {
+          "ALPHA": 0.06
+        },
+        "wins": 48,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.52
+      },
+      "alpha15": {
+        "settings": {
+          "ALPHA": 0.15
+        },
+        "wins": 44,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.56
+      },
+      "degrade1": {
+        "settings": {
+          "DEGRADE": 0.1
+        },
+        "wins": 23,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.77
+      },
+      "degrade4": {
+        "settings": {
+          "DEGRADE": 0.4
+        },
+        "wins": 61,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.39
+      },
+      "hold5": {
+        "settings": {
+          "HOLD": 5
+        },
+        "wins": 52,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.48
+      },
+      "hold9": {
+        "settings": {
+          "HOLD": 9
+        },
+        "wins": 40,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.6
+      },
+      "mine3": {
+        "settings": {
+          "MINE_HOLD": 3
+        },
+        "wins": 26,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.74
+      }
+    }
+  },
+  "finalists": {
+    "arguments": {
+      "configs": "tools/codex_experiments/finalists.json",
+      "games": 160,
+      "seed": 606,
+      "workers": 3,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-final/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/finalists.json"
+    },
+    "experiments": {
+      "hold8": {
+        "settings": {
+          "AUTO": 1,
+          "DUEL_HOLD": 8,
+          "DUEL_INT_MAX": 0.45
+        },
+        "wins": 116,
+        "games": 160,
+        "errors": 0,
+        "average_rank": 1.275
+      },
+      "supply75": {
+        "settings": {
+          "AUTO": 1,
+          "DUEL_HOLD": 7,
+          "DUEL_INT_MAX": 0.75
+        },
+        "wins": 116,
+        "games": 160,
+        "errors": 0,
+        "average_rank": 1.275
+      },
+      "combined": {
+        "settings": {
+          "AUTO": 1,
+          "DUEL_HOLD": 8,
+          "DUEL_INT_MAX": 0.75
+        },
+        "wins": 122,
+        "games": 160,
+        "errors": 0,
+        "average_rank": 1.2375
+      }
+    }
+  },
+  "fresh_aggressive": {
+    "arguments": {
+      "configs": "tools/codex_experiments/aggressive.json",
+      "games": 200,
+      "seed": 202,
+      "workers": 3,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/fresh_aggressive.json"
+    },
+    "experiments": {
+      "both": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0
+        },
+        "wins": 132,
+        "games": 200,
+        "errors": 0,
+        "average_rank": 1.34
+      }
+    }
+  },
+  "combinations": {
+    "arguments": {
+      "configs": "tools/codex_experiments/combinations.json",
+      "games": 100,
+      "seed": 404,
+      "workers": 3,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/combinations.json"
+    },
+    "experiments": {
+      "hold9_d4": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 9,
+          "DEGRADE": 0.4
+        },
+        "wins": 51,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.49
+      },
+      "hold9_d3": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 9,
+          "DEGRADE": 0.3
+        },
+        "wins": 55,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.45
+      },
+      "hold8": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 8
+        },
+        "wins": 80,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.2
+      },
+      "hold10": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 10
+        },
+        "wins": 63,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 1.37
+      }
+    }
+  },
+  "refine": {
+    "arguments": {
+      "configs": "tools/codex_experiments/refine.json",
+      "games": 64,
+      "seed": 303,
+      "workers": 3,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_v0",
+      "out": "starter-kit/rust/target/codex-results/refine.json"
+    },
+    "experiments": {
+      "aggressive": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0
+        },
+        "wins": 44,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.3125
+      },
+      "hold5": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 5
+        },
+        "wins": 36,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.4375
+      },
+      "hold9": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "HOLD": 9
+        },
+        "wins": 47,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.265625
+      },
+      "int15": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.15
+        },
+        "wins": 35,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.453125
+      },
+      "int75": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "INT_MAX": 0.75
+        },
+        "wins": 52,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.1875
+      },
+      "degrade1": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "DEGRADE": 0.1
+        },
+        "wins": 32,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.5
+      },
+      "degrade4": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "DEGRADE": 0.4
+        },
+        "wins": 23,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.640625
+      },
+      "alpha05": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "ALPHA": 0.05
+        },
+        "wins": 29,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.546875
+      },
+      "alpha2": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "ALPHA": 0.2
+        },
+        "wins": 29,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.546875
+      },
+      "prod12": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "PROD_POWER": 1.2
+        },
+        "wins": 41,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.359375
+      },
+      "prod8": {
+        "settings": {
+          "WALLS": 0,
+          "STRATEGIC": 0,
+          "PROD_POWER": 0.8
+        },
+        "wins": 27,
+        "games": 64,
+        "errors": 0,
+        "average_rank": 1.578125
+      }
+    }
+  },
+  "multi_production": {
+    "arguments": {
+      "configs": "tools/codex_experiments/multi_production.json",
+      "games": 100,
+      "seed": 707,
+      "workers": 4,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-prod/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/multi_production.json"
+    },
+    "experiments": {
+      "prod12": {
+        "settings": {
+          "AUTO": 1,
+          "PROD_POWER": 1.2
+        },
+        "wins": 33,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.18
+      },
+      "degrade4": {
+        "settings": {
+          "AUTO": 1,
+          "DEGRADE": 0.4
+        },
+        "wins": 45,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.1
+      },
+      "both": {
+        "settings": {
+          "AUTO": 1,
+          "PROD_POWER": 1.2,
+          "DEGRADE": 0.4
+        },
+        "wins": 39,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.21
+      },
+      "prod12_hold5": {
+        "settings": {
+          "AUTO": 1,
+          "PROD_POWER": 1.2,
+          "HOLD": 5
+        },
+        "wins": 34,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.3
+      }
+    }
+  },
+  "initial": {
+    "arguments": {
+      "configs": "tools/codex_experiments/initial.json",
+      "games": 32,
+      "seed": 101,
+      "workers": 4,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-build/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/initial.json"
+    },
+    "experiments": {
+      "baseline": {
+        "settings": {},
+        "wins": 16,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.5
+      },
+      "alpha03": {
+        "settings": {
+          "ALPHA": 0.03
+        },
+        "wins": 12,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.625
+      },
+      "alpha3": {
+        "settings": {
+          "ALPHA": 0.3
+        },
+        "wins": 10,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.6875
+      },
+      "degrade05": {
+        "settings": {
+          "DEGRADE": 0.05
+        },
+        "wins": 6,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.8125
+      },
+      "degrade8": {
+        "settings": {
+          "DEGRADE": 0.8
+        },
+        "wins": 11,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.65625
+      },
+      "hold3": {
+        "settings": {
+          "HOLD": 3
+        },
+        "wins": 13,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.59375
+      },
+      "hold12": {
+        "settings": {
+          "HOLD": 12
+        },
+        "wins": 12,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.625
+      },
+      "int15": {
+        "settings": {
+          "INT_MAX": 0.15
+        },
+        "wins": 12,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.625
+      },
+      "int75": {
+        "settings": {
+          "INT_MAX": 0.75
+        },
+        "wins": 16,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.5
+      },
+      "prod15": {
+        "settings": {
+          "PROD_POWER": 1.5
+        },
+        "wins": 12,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.625
+      },
+      "no_strategic": {
+        "settings": {
+          "STRATEGIC": 0
+        },
+        "wins": 17,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.46875
+      },
+      "no_walls": {
+        "settings": {
+          "WALLS": 0
+        },
+        "wins": 19,
+        "games": 32,
+        "errors": 0,
+        "average_rank": 1.40625
+      }
+    }
+  },
+  "multi_finalists": {
+    "arguments": {
+      "configs": "tools/codex_experiments/multi_finalists.json",
+      "games": 100,
+      "seed": 606,
+      "workers": 3,
+      "players": 4,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-final/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/multi_finalists.json"
+    },
+    "experiments": {
+      "hold5": {
+        "settings": {
+          "AUTO": 1,
+          "HOLD": 5,
+          "DUEL_HOLD": 8
+        },
+        "wins": 23,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.76
+      },
+      "hold5_supply75": {
+        "settings": {
+          "AUTO": 1,
+          "HOLD": 5,
+          "INT_MAX": 0.75,
+          "DUEL_HOLD": 8
+        },
+        "wins": 28,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.52
+      },
+      "supply75": {
+        "settings": {
+          "AUTO": 1,
+          "INT_MAX": 0.75,
+          "DUEL_HOLD": 8
+        },
+        "wins": 28,
+        "games": 100,
+        "errors": 0,
+        "average_rank": 2.42
+      }
+    }
+  },
+  "combat": {
+    "arguments": {
+      "configs": "tools/codex_experiments/combat.json",
+      "games": 40,
+      "seed": 101,
+      "workers": 3,
+      "players": 2,
+      "opponents": "erdman_bot",
+      "candidate": "starter-kit/rust/target/codex-search/release/codex_bot",
+      "out": "starter-kit/rust/target/codex-results/combat.json"
+    },
+    "experiments": {
+      "search50": {
+        "settings": {
+          "SEARCH": 1
+        },
+        "wins": 11,
+        "games": 40,
+        "errors": 0,
+        "average_rank": 1.725
+      },
+      "search100": {
+        "settings": {
+          "SEARCH": 1,
+          "PRED": 1
+        },
+        "wins": 15,
+        "games": 40,
+        "errors": 0,
+        "average_rank": 1.625
+      },
+      "search0": {
+        "settings": {
+          "SEARCH": 1,
+          "PRED": 0
+        },
+        "wins": 13,
+        "games": 40,
+        "errors": 0,
+        "average_rank": 1.675
+      },
+      "search75": {
+        "settings": {
+          "SEARCH": 1,
+          "PRED": 0.75
+        },
+        "wins": 16,
+        "games": 40,
+        "errors": 0,
+        "average_rank": 1.6
+      }
+    }
+  }
+}

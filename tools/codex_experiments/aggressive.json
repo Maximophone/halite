@@ -1,0 +1,10 @@
+{
+  "both": {
+    "WALLS": 0,
+    "STRATEGIC": 0,
+    "AUTO": 0,
+    "PROD_POWER": 1.0,
+    "DUEL_HOLD": 7,
+    "DEGRADE": 0.2
+  }
+}

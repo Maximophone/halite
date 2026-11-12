@@ -36,7 +36,7 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"), `neuro_beta`, `neuro_gamma` and `neuro_delta` (the network plus a one-turn combat search, `src/neuro_search.rs`; NeuroDelta, with a bigger network, is the strongest neural bot). `fable_bot` (CodexBot's policy plus a duel combat search, a barren-land fix and a multiplayer war mode, see "FableBot"; the strongest bot). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"), `neuro_beta`, `neuro_gamma` and `neuro_delta` (the network plus a one-turn combat search, `src/neuro_search.rs`; NeuroDelta, with a bigger network, is the strongest neural bot). `fable_bot` (CodexBot's policy plus a duel combat search, a barren-land fix and a multiplayer war mode, see "FableBot"; the strongest bot). `handmade_bot` (a 97-weight network written by hand, see "HandmadeBot"). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
 | `rl/` | Neural training, the one place with crates (Maxime chose candle on Metal, 2026-10-17): `src/main.rs` (`halite-rl train`, `parity`, `bench`), `src/metal_conv.rs` (hand-written Metal kernels for the wrap-around conv), `gen_data.py` (teacher games), `dashboard.py` + `dashboard.html` (live training curves, port 8090). See "Neural line" |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
@@ -840,6 +840,40 @@ Caveats and what is left:
   `FABLE_WAR_SAFE` condition is the fix. Next ideas: choose the war target by territory gained
   per strength spent, and time the attack against the turn limit.
 - CodexBot's unit tests were not carried over.
+
+## HandmadeBot (Maxime: "a small neural network that you would tune by hand", 2026-11-13)
+
+`handmade_bot.rs`: a convolutional network with 97 non-zero weights, all written by hand in
+`build()` (no training, no imitation, no gradients; not meant to top the leaderboard). Its own
+tiny forward pass (sparse 3x3 taps, wrap-around, `out = relu(conv(x) + bias) + skip(x)`), not
+`nn.rs`. Five raw input planes (mine, enemy, neutral, strength / 255, production / 15).
+- Gates (1x1): ReLU as an AND gate (`relu(s + mine - 1)` = my strength), target value
+  `V = relu(wp * production - ws * strength + c) + floor` (+ `HAND_ENEMY` on enemy sites),
+  `wait = relu(k * production - strength)`.
+- Blur, one layer applied 8 times: `V += 0.2 * sum of the neighbours' V`.
+- Heat, one layer applied 24 times: `F = V` outside our land, `F = 0.22 * sum of the
+  neighbours' F` inside. Walking uphill on F leads to the best nearby frontier.
+- Per-direction features (up, blocked, waiting, overflow), then a linear head:
+  `logit[d] = up[d] - 1e6 * (blocked[d] + waiting[d] + overflow[d])`, STILL = 0, argmax.
+Every scalar reads a `HAND_*` variable. How the tuning went (80 solo maps, production at turns
+100 / 150; 200 games per line):
+- First version, no blur: 1041 / 2573 (ImprovedBot 933 / 2254, PredatorBot 1161 / 2947), 66% of
+  duels vs ImprovedBot, 36% vs PredatorBot. It stalled on 10 of 80 maps: poor land had value
+  exactly 0, so no heat. A constant `floor` of 0.02 on neutral sites fixed that.
+- Every scalar was then flat within 2% (value slope, bias, heat decay 0.12-0.25, grown
+  threshold 3-8, cap slack, 12 heat steps). The gain was structural: the blur, 1049 -> 1190 /
+  3060 (8 passes at 0.2; 4 to 12 passes and 0.15 to 0.25 about the same).
+- `HAND_ENEMY` (value of an enemy site): 1 -> 10 took duels vs PredatorBot from 63.5% to 72.5%;
+  10 to 30 the same, 100 worse. Default 20.
+Results (`tools/eval_lineup.py handmade_bot --n 200 --seed 77`, 0 errors): duels 99% vs
+ImprovedBot, 93.5% vs EvoBot, 82.5% vs PredatorBot, 42.5% vs ApexAlpha, 24.5% vs HAL-lite, 23%
+vs NeuroAlpha (106,085 trained weights), 16% vs ApexBeta; 4 players 69.5% vs 2 ImprovedBots +
+PredatorBot, 34% vs PredatorBot, ApexAlpha, ImprovedBot; 6 players 44.5% vs 2 PredatorBots, 2
+ImprovedBots, RandomBot. About ApexAlpha's level in duels, weaker in multiplayer.
+What a per-site argmax cannot express: gathering several pieces for one capture, and anything
+about what the enemy does this turn.
+The arena played its development builds while it was being written (the arena rescans built
+binaries each game), so its rating was reset with `Arena.reset_bot` once the final build was in.
 
 ## Ideas not done yet (only if Maxime asks)
 

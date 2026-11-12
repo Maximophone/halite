@@ -36,7 +36,7 @@ Sources used for the rules:
 | `test_ratings.py` | Plain-assert checks of the arena ratings and the snapshot rebuild. Run `python3 test_ratings.py` |
 | `engine/` | Rust engine, binary `engine/target/release/halite`, std only. `pyrandom.rs` (CPython's MT19937 seeding, `random()`, `_randbelow`, `choice`, `shuffle`), `game.rs` (`generate_map`, `GameState`), `bot.rs` (processes, universal-newline line reader, timeouts), `json.rs` (`json.dumps` byte for byte), `main.rs` (run_game, argparse-like CLI, hidden `--step-test` and `--map-test` modes) |
 | `check_engine.py` | Equivalence harness Rust vs Python: maps, single steps, full games, ejection. `python3 check_engine.py [--quick] [--only maps/rules/games/ejection]` |
-| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"), `neuro_beta`, `neuro_gamma` and `neuro_delta` (the network plus a one-turn combat search, `src/neuro_search.rs`; NeuroDelta, with a bigger network, is the strongest neural bot). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
+| `starter-kit/rust/` | The only starter kit (Maxime: "we will only be using Rust now", 2026-10-17). Cargo project, no crates. `src/hlt.rs` is the lib (`hlt`: types plus `get_init`/`send_init`/`Connection::get_frame`/`send_frame`). Bots in `src/bin/`, each a binary in `target/release/`: `my_bot` (Maxime's bot, random template, name `MyBot`), `random_bot` (original sample bot), `improved_bot` (heuristic sparring bot), `predator_bot` (see below), `apex_alpha` (see "Apex line"), `apex_beta` (see "ApexBeta"), `apex_gamma` (see "ApexGamma"), `apex_delta` (Gamma plus DexBot's tunnel value, see "ApexDelta"), `hal_lite`, `dex_bot` and `erdman_bot` (strongest, the 2016 winner; ports of 2016 competitors' bots, see "Bots of 2016 players"), `neuro_alpha` (convolutional network cloned from DexBot, see "Neural line"), `neuro_beta`, `neuro_gamma` and `neuro_delta` (the network plus a one-turn combat search, `src/neuro_search.rs`; NeuroDelta, with a bigger network, is the strongest neural bot). `fable_bot` (CodexBot's policy plus a duel combat search, a barren-land fix and a multiplayer war mode, see "FableBot"; the strongest bot). `src/nn.rs` (module `hlt::nn`) holds the network's features and std-only forward pass; `weights/neuro_alpha.hnn` is compiled into the bot. The arena names them by CamelCasing the file stem |
 | `rl/` | Neural training, the one place with crates (Maxime chose candle on Metal, 2026-10-17): `src/main.rs` (`halite-rl train`, `parity`, `bench`), `src/metal_conv.rs` (hand-written Metal kernels for the wrap-around conv), `gen_data.py` (teacher games), `dashboard.py` + `dashboard.html` (live training curves, port 8090). See "Neural line" |
 
 The bots were first written in Python (original 2016 API: `hlt.py`/`networking.py`, camelCase
@@ -776,6 +776,70 @@ play and pass their tests, then committed them unchanged.
 - `arena.py`: `reset_bot` starts a fresh rating for one re-released bot as an ordered journal
   event (restarts and compaction replay it; the old release's games are hidden), arena paused
   first. Test: `python3 tools/codex_experiments/test_arena_reset.py`.
+
+## FableBot (Maxime: "build a new bot that gets the top rank on the leaderboard", 2026-11-12)
+
+`fable_bot.rs` = CodexBot's policy (so ErdmanBot's economy) plus four changes. Every constant
+reads a `FABLE_*` variable; `FABLE_DEBUG=1` logs changed moves, the idle counter, the war target
+and the turn time. Tools added: `tools/eval_lineup.py` (candidate against any lineup, same seeds
+and seats per candidate, "finished ahead of" per opponent), `tools/solo_compare.py` (solo economy
+of several commands on the same maps, with a count of stalled starts).
+
+- Barren land. ErdmanBot and CodexBot give zero-production squares an infinite potential, so
+  they never cross them: on 12 of 160 solo maps CodexBot had under half of DexBot's production at
+  turn 100, on 5 it never left its start (in a 4-player game: 9 squares, production 0, all game).
+  Counting them as production `FABLE_ZERO_PROD=0.25`: 2 stalled maps, production at turns 60 /
+  100 / 150 from 349 / 1353 / 3260 to 357 / 1392 / 3387 (0.1 and 0.5 about the same, 1.0 worse
+  than nothing). In games this alone took 4-player wins from 21% to 31% (vs CodexBot, ErdmanBot,
+  DexBot) and from 24% to 40% vs three CodexBots.
+- Duel search: ApexBeta's one-turn combat search (as in `neuro_search.rs`), enemy moves predicted
+  by running the same policy from the enemy's seat (weight `FABLE_PRED=0.8`). Duels vs CodexBot
+  46.5% -> 80%. Sweeps (300 games, 4 opponents): pred 1.0, bias 3, terr 1, duel percentile 0.45
+  flat; zone 4 and terr 4 worse.
+- Multiplayer: the search is off while the walls stand. On everywhere it took 4-player wins from
+  22.5% to 9% (it breaks the non-aggression walls); forbidden from entering neutrals it still
+  cost 6 points (37% -> 31%).
+- War. 68% of 4-player games between these bots reach the turn limit with several players alive
+  and are ranked on territory; there the Codex policy's rank is close to random. After
+  `FABLE_WAR_IDLE=15` turns without a new territory maximum, FableBot attacks its weakest
+  neighbour (total strength, rivals within 3 steps) if it has `FABLE_WAR_RATIO=1.0` times its
+  strength and `FABLE_WAR_SAFE=1.0` times that of its strongest other neighbour: walls within 2
+  of that rival are released and the search runs against it only. Worth 4 points in 3-player
+  games (46.7% -> 50.7%), +9 vs three CodexBots before the constants below, neutral in mixed 4-
+  and 6-player games. Ratio 0.6-1.0 the same, 1.2 and above almost never fires (stalemated bots
+  all sit near the cap, so strength follows territory). Two triggers that did not work: Erdman's
+  `mining_remains` (empty no-man's-land squares count as mining forever) and "no neutral left
+  but walls" (some leftover neutral always remains).
+- Multiplayer constants, confirmed on a second seed set (400 games): routing distance penalty
+  0.3 (CodexBot 0.4) and no strategic stilling: mixed 4-player 30% -> 36%, vs three CodexBots
+  44.5% -> 58%. Combat hold 8 on top: no gain.
+
+Results on fresh seeds (`tools/eval_lineup.py fable_bot --opps ... --n 400 --seed 999`, 0 errors
+in 4,400 games, worst turn about 60 ms on a loaded machine):
+
+| Format | Opponents | Wins | Average rank |
+|---|---|---|---|
+| duel | CodexBot / ErdmanBot / DexBot / NeuroDelta / ApexDelta | 86 / 82 / 84 / 84 / 87.5% | |
+| 3 players | CodexBot, ErdmanBot | 49% | 1.73 |
+| 4 players | CodexBot, ErdmanBot, DexBot | 34% | 2.37 |
+| 4 players | three CodexBots / three ErdmanBots | 55% / 58% | 1.86 / 1.91 |
+| 4 players | DexBot, NeuroDelta, ApexDelta | 69% | 1.60 |
+| 6 players | CodexBot, ErdmanBot, DexBot, ApexDelta, HAL-lite | 34.5% | 2.48 |
+
+Same seeds, CodexBot: 74% of duels vs ErdmanBot, 25.5% of 4-player games vs FableBot, ErdmanBot
+and DexBot.
+
+Caveats and what is left:
+- Fairness: FableBot reads no names and assumes "the enemy plays like me", but its policy is
+  nearly CodexBot's and ErdmanBot's, so its predictions of those two are close to exact (the
+  ApexBeta vs ApexAlpha situation). The 84% against DexBot and NeuroDelta, which it does not
+  model, shows the duel gain is not only that.
+- Mixed 4-player games are the weak format (34% where 25% is par): once walls are up the result
+  is mostly the expansion race, and war helps only against uniform fields. In one traced loss
+  FableBot attacked an equal neighbour next to a rival four times stronger and was eaten; the
+  `FABLE_WAR_SAFE` condition is the fix. Next ideas: choose the war target by territory gained
+  per strength spent, and time the attack against the turn limit.
+- CodexBot's unit tests were not carried over.
 
 ## Ideas not done yet (only if Maxime asks)
 

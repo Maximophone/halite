@@ -39,7 +39,7 @@ def run(cmd, seed, side):
     finally:
         shutil.rmtree(d, ignore_errors=True)
     prod = rp["productions"]
-    return [sum(prod[i] for i, o in enumerate(rp["frames"][t][0]) if o == 1) for t in TURNS]
+    return [sum(prod[i] for i, o in enumerate(rp["frames"][min(t, len(rp["frames"]) - 1)][0]) if o == 1) for t in TURNS]
 
 
 def main():
